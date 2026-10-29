@@ -1,0 +1,41 @@
+name: tlab-test
+
+services:
+  postgres:
+    image: postgres:17.11
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localtest123}
+      POSTGRES_DB: test
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d test"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  oracle:
+    image: container-registry.oracle.com/database/free:23.26.3.0-lite
+    environment:
+      ORACLE_PWD: ${ORACLE_PASSWORD:-Localtest123}
+    ports:
+      - "127.0.0.1:${ORACLE_PORT:-1521}:1521"
+    volumes:
+      - oracle-data:/opt/oracle/oradata
+
+  redis:
+    image: redis:7.4.12
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  postgres-data:
+  oracle-data:
