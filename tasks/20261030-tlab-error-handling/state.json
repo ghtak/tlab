@@ -1,0 +1,20 @@
+{
+  "tasks": {
+    "requirements": {
+      "status": "complete",
+      "document": "requirements.md"
+    },
+    "design": {
+      "status": "complete",
+      "document": "design.md"
+    },
+    "implementation": {
+      "status": "complete",
+      "document": "implementation.md"
+    },
+    "review": {
+      "status": "complete",
+      "document": "review.md"
+    }
+  }
+}

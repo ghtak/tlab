@@ -1,3 +1,7 @@
+mod error;
+
+pub use error::{Error, Result};
+
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
 }
