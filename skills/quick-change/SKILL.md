@@ -13,7 +13,7 @@ description: Guide small development changes through explicit user-controlled st
 
 1. **요청 확인**: 요청, 목적과 완료 기준을 정리하고 관련 코드와 기존 동작을 확인한다. 결과를 `work.md`에 기록한다.
 2. **구현 방향**: 필요한 변경 범위와 검증 방법을 간결히 정리한다. 결과를 기록하고 사용자에게 제시한다.
-3. **구현·검증**: [guideline-coding](../guideline-coding/SKILL.md)을 적용해 구현하고 변경한 동작을 실제 실행해 확인한다. 실제 변경, 검증 결과와 미확인 사항을 기록한다.
+3. **구현·검증**: [guideline-coding](../guideline-coding/SKILL.md)을 적용해 구현하고, 테스트 선택·작성 시 [guideline-testing](../guideline-testing/SKILL.md)을 따른다. 변경한 동작을 실제 실행해 확인하고 실제 변경, 검증 결과와 미확인 사항을 기록한다.
 4. **리뷰·결과**: 전체 변경과 관련 호출부를 확인해 요청과의 정합성, 발견 사항과 검증 근거를 정리한다. 보완이 필요하면 결과를 보고하고 사용자 지시에 따라 구현 단계로 돌아간다.
 
 ## 상태와 기록

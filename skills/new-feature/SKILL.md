@@ -18,6 +18,8 @@ description: Orchestrate requirements, design, implementation, verification, and
 
 `workflow.md`에 다음 목록을 기록하고 각 항목에서 연결된 스킬을 적용한다. 결과와 다음 행동을 먼저 기록한 뒤 완료한 항목을 체크하고 상태를 갱신한다.
 
+각 단계가 끝나거나 다음 단계로 전환할 때 대화에 전체 진행 목록과 현재·다음 항목을 간결히 표시한다. 사용자가 진행 상황을 묻거나 진행 상태를 공유할 필요가 있을 때도 표시한다. `workflow.md`와 실제 상태를 확인한 뒤 표시하며, 표시 자체가 사용자 승인이나 다음 단계 진행 요청을 뜻하지는 않는다.
+
 - [ ] 요구사항 정의 — [define-requirements](../define-requirements/SKILL.md) → `requirements.md`
 - [ ] 초기 설계 — [create-design](../create-design/SKILL.md) → `design.md`
 - [ ] 검증 절차 준비 — [simple-create-verification](../simple-create-verification/SKILL.md) → `verification/procedure.md`
