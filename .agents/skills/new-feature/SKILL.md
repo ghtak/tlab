@@ -26,6 +26,7 @@ description: Orchestrate requirements, design, implementation, verification, and
 - [ ] 초기 설계 — [create-design](../create-design/SKILL.md) → `design.md`
 - [ ] 검증 절차 준비 — [simple-create-verification](../simple-create-verification/SKILL.md) → `verification/procedure.md`
 - [ ] 작업 분할 — [breakdown-tasks](../breakdown-tasks/SKILL.md) → `tasks.md`
+- [ ] 구현 문서 준비 — [implement-task](../implement-task/SKILL.md) → `implementation.md`와 `implementation/<impl-id>.md`의 구현 계획
 - [ ] 개별 Task 구현·검증·커밋 — [implement-task](../implement-task/SKILL.md) → 작업 문서와 커밋
 - [ ] 전체 기능 검증 — [simple-create-verification](../simple-create-verification/SKILL.md) → `verification/result.md`
 - [ ] 전체 변경 리뷰 — [review-work](../review-work/SKILL.md) → `review.md`

@@ -5,4 +5,9 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1"
+config = { version = "0.15.27", default-features = false, features = ["toml", "yaml"] }
+serde = "1"
 thiserror = "2"
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }

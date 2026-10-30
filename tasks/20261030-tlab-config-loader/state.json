@@ -1,0 +1,24 @@
+{
+  "tasks": {
+    "define-requirements": {
+      "status": "complete",
+      "document": "requirements.md",
+      "note": "User explicitly confirmed requirements completion. Design and implementation not performed."
+    },
+    "create-design": {
+      "status": "complete",
+      "document": "design.md",
+      "note": "User explicitly confirmed design completion. Contracts, scope and verification plan finalized; implementation and execution checks remain subsequent work."
+    },
+    "implementation": {
+      "status": "complete",
+      "document": "implementation.md",
+      "note": "rev-03 restored File::from(path) delegation per user; R2/docs/tests aligned; full fmt/test/clippy passed. No staging or commits."
+    },
+    "review-work": {
+      "status": "complete",
+      "document": "review.md",
+      "note": "Latest contract accepts config file discovery; finding 1 reclassified as withdrawn constraint. Historical review/rev-02 preserved; rev-03 validated, no independent review."
+    }
+  }
+}
