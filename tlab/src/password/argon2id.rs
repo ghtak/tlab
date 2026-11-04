@@ -29,11 +29,13 @@ pub struct Hasher {
 }
 impl Hasher {
     pub fn new(config: &Config) -> Result<Self> {
+        // OWASP
         if config.memory_kib < 19_456 {
             return Err(Error::InvalidInput(
                 "Argon2id memory_kib must be at least 19456".into(),
             ));
         }
+        // OWASP
         if config.iterations < 2 {
             return Err(Error::InvalidInput(
                 "Argon2id iterations must be at least 2".into(),
@@ -62,13 +64,7 @@ impl Hasher {
 
 impl PasswordHasher for Hasher {
     fn hash(&self, password: &str) -> Result<String> {
-        let mut bytes = [0u8; 16];
-        getrandom::getrandom(&mut bytes).map_err(|error| {
-            Error::Internal(anyhow::anyhow!("failed to generate password salt: {error}"))
-        })?;
-        let salt = SaltString::encode_b64(&bytes).map_err(|error| {
-            Error::Internal(anyhow::anyhow!("failed to encode password salt: {error}"))
-        })?;
+        let salt = crate::password::salt()?;
         self.argon2()
             .hash_password(password.as_bytes(), &salt)
             .map(|hash| hash.to_string())

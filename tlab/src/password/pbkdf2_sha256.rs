@@ -1,6 +1,6 @@
 //! PBKDF2-HMAC-SHA256 hash generation and verification of supported PHC hashes.
 
-use crate::{Error, Result, password::PasswordHasher};
+use crate::{Error, Result, password::{self, PasswordHasher}};
 use argon2::password_hash::{
     Error as HashError, PasswordHash, PasswordHasher as _, PasswordVerifier as _, SaltString,
 };
@@ -25,6 +25,7 @@ pub struct Hasher {
 }
 impl Hasher {
     pub fn new(config: &Config) -> Result<Self> {
+        // OWASP
         if config.iterations < 600_000 {
             return Err(Error::InvalidInput(
                 "PBKDF2-SHA256 iterations must be at least 600000".into(),
@@ -38,13 +39,7 @@ impl Hasher {
 
 impl PasswordHasher for Hasher {
     fn hash(&self, password: &str) -> Result<String> {
-        let mut bytes = [0u8; 16];
-        getrandom::getrandom(&mut bytes).map_err(|error| {
-            Error::Internal(anyhow::anyhow!("failed to generate password salt: {error}"))
-        })?;
-        let salt = SaltString::encode_b64(&bytes).map_err(|error| {
-            Error::Internal(anyhow::anyhow!("failed to encode password salt: {error}"))
-        })?;
+        let salt = crate::password::salt()?;
         pbkdf2::Pbkdf2
             .hash_password_customized(
                 password.as_bytes(),
