@@ -63,7 +63,10 @@ impl StaticFilesConfig {
     /// The prefix must be a fixed, non-root URL path. The directory must exist.
     /// Symlinks follow filesystem semantics, including targets outside the root.
     /// Conflicts when merging with application routes are Axum assembly errors.
-    pub fn router(&self) -> Result<Router> {
+    pub fn router<S>(&self) -> Result<Router<S>>
+    where
+        S: Clone + Send + Sync + 'static,
+    {
         let prefix = self.prefix.trim_end_matches('/');
         if !prefix.starts_with('/')
             || prefix.is_empty()

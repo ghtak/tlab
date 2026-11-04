@@ -1,6 +1,6 @@
 mod app;
 
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use axum::{Router, routing::get};
 use tlab::Error;
@@ -14,12 +14,15 @@ async fn main() -> tlab::Result<()> {
     let config: app::Config = tlab::config::load(&config_path, "TLAB_APP")?;
     let _tracing_guard = tlab::tracing::initialize(&config.tracing)?;
 
-    let container = app::Container::new(config).await?;
+    let container = Arc::new(app::Container::new(config).await?);
 
-    let mut router = Router::new().route("/health", get(|| async { "ok" }));
+    let mut router: Router<Arc<app::Container>> =
+        Router::new().route("/health", get(|| async { "ok" }));
     if let Some(files) = &container.config.server.static_files {
         router = router.merge(files.router()?);
     }
+
+    let router: Router = router.with_state(container.clone());
 
     tracing::info!("application starting");
     tokio::try_join!(

@@ -311,8 +311,8 @@ async fn app_instances_share_state_layers_and_static_files() {
                 "/api",
                 get(|State(value): State<String>| async move { value }),
             )
-            .with_state("state-body".to_owned())
             .merge(static_files.router().unwrap())
+            .with_state("state-body".to_owned())
             .layer(middleware::map_response(
                 |mut response: axum::response::Response| async move {
                     response
@@ -388,7 +388,7 @@ fn static_settings_fail_before_router_assembly() {
                     prefix: prefix.into(),
                     directory: directory.path().into()
                 }
-                .router(),
+                .router::<()>(),
                 Err(Error::InvalidInput(_))
             ),
             "{prefix:?}"
@@ -402,7 +402,7 @@ fn static_settings_fail_before_router_assembly() {
                 prefix: "/static".into(),
                 directory: root
             }
-            .router(),
+            .router::<()>(),
             Err(Error::InvalidInput(_))
         ));
     }

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use serde::Deserialize;
 use tlab::{Error, http, password};
 
@@ -39,18 +37,18 @@ pub struct Config {
 /// Owns application settings and prepares servers; main owns execution.
 pub struct Container {
     pub config: Config,
-    pub http: Arc<http::Server>,
-    pub https: Arc<http::Server>,
-    pub passwd_hasher: Arc<dyn password::PasswordHasher>,
+    pub http: http::Server,
+    pub https: http::Server,
+    pub passwd_hasher: Box<dyn password::PasswordHasher>,
 }
 
 impl Container {
     pub async fn new(config: Config) -> tlab::Result<Self> {
         config.server.validate()?;
         // Prepare both instances before main opens any listeners.
-        let http = Arc::new(http::Server::new(&config.server.http).await?);
-        let https = Arc::new(http::Server::new(&config.server.https).await?);
-        let passwd_hasher = Arc::new(password::argon2id::Hasher::new(&config.passwd_hasher)?);
+        let http = http::Server::new(&config.server.http).await?;
+        let https = http::Server::new(&config.server.https).await?;
+        let passwd_hasher = Box::new(password::argon2id::Hasher::new(&config.passwd_hasher)?);
         Ok(Self {
             config,
             http,
