@@ -25,3 +25,7 @@ rustc-ice-*.txt
 
 .DS_Store
 .env
+
+# Application logs
+/logs/
+/tlab-app/logs/

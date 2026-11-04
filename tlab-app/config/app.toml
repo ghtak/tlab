@@ -1,0 +1,8 @@
+[tracing.console]
+filter = "info"
+ansi = true
+
+[tracing.file]
+# Relative to the process's working directory.
+directory = "./logs"
+filename_prefix = "tlab-app.log"
