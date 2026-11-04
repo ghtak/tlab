@@ -1,8 +1,8 @@
 //! PBKDF2-HMAC-SHA256 hash generation and verification of supported PHC hashes.
 
-use crate::{Error, Result, password::{self, PasswordHasher}};
+use crate::{Error, Result, password::PasswordHasher};
 use argon2::password_hash::{
-    Error as HashError, PasswordHash, PasswordHasher as _, PasswordVerifier as _, SaltString,
+    Error as HashError, PasswordHash, PasswordHasher as _, PasswordVerifier as _,
 };
 
 /// Settings for newly generated PBKDF2-SHA256 hashes.

@@ -2,7 +2,7 @@
 
 use crate::{Error, Result, password::PasswordHasher};
 use argon2::password_hash::{
-    Error as HashError, PasswordHash, PasswordHasher as _, PasswordVerifier as _, SaltString,
+    Error as HashError, PasswordHash, PasswordHasher as _, PasswordVerifier as _,
 };
 
 /// Settings for newly generated Argon2id hashes.
