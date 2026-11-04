@@ -5,6 +5,24 @@ use std::io;
 use tlab::{Error, Result};
 
 #[test]
+fn database_conversion_and_question_mark_preserve_original_errors() {
+    fn propagate(input: std::result::Result<(), sqlx::Error>) -> Result<()> {
+        input?;
+        Ok(())
+    }
+    for error in [
+        Error::from(sqlx::Error::RowNotFound),
+        propagate(Err(sqlx::Error::RowNotFound)).unwrap_err(),
+    ] {
+        assert!(matches!(&error, Error::DbError(sqlx::Error::RowNotFound)));
+        assert!(matches!(
+            error.source().unwrap().downcast_ref::<sqlx::Error>(),
+            Some(sqlx::Error::RowNotFound)
+        ));
+    }
+}
+
+#[test]
 fn illegal_state_preserves_borrowed_and_owned_messages() {
     fn owned_error() -> tlab::error::Error {
         let state = String::from("closed");

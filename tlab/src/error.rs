@@ -29,6 +29,7 @@ use std::borrow::Cow;
 ///         Error::IllegalState(_) => "state",
 ///         Error::IoError(_) => "io",
 ///         Error::Config(_) => "config",
+///         Error::DbError(_) => "database",
 ///         Error::Internal(_) => "internal",
 ///     }
 /// }
@@ -56,6 +57,10 @@ pub enum Error {
     /// that library does not expose them through `std::error::Error::source`.
     #[error("configuration error: {0}")]
     Config(#[from] ::config::ConfigError),
+
+    /// A SQLx failure, retaining the original error and database diagnostics.
+    #[error("database error: {0}")]
+    DbError(#[from] sqlx::Error),
 
     /// An unclassified failure, retaining its context and cause chain.
     ///
