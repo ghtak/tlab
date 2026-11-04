@@ -19,6 +19,7 @@
 - [DB 모듈](../../tlab/src/sqlxdb.rs): SQLx 기반의 DB 접근과 트랜잭션 관리를 제공한다. 상세는 [DB 설계](../specs/database/plan.md)를 참조한다.
 - [tracing 모듈](../../tlab/src/tracing.rs): 콘솔·파일 출력과 프로세스 전역 tracing 초기화를 제공한다.
 - [키파일 모듈](../../tlab/src/keyfiles.rs): 소비자가 포함하는 파일 설정 타입과 TLS·Ed25519 자료의 로드·개발용 생성을 제공한다. 상세는 [키파일 관리 명세](../specs/keyfiles/spec.md)를 참조한다.
+- [HTTP 모듈](../../tlab/src/http.rs): 앱이 조립한 Axum Router로 단일 HTTP 또는 HTTPS 리스너를 실행하고 정적 파일 Router 생성과 TLS 재로드를 제공한다. 다중 인스턴스 조정은 앱이 맡는다. [설계](../specs/http/plan.md)와 [검증·리뷰](../specs/http/verification.md)를 참조한다.
 - [앱 진입점](../../tlab-app/src/main.rs): Tokio 기반으로 설정 로드와 tracing 초기화를 연결한다. (확인)
 
 ## 개발 가이드
