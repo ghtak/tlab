@@ -11,7 +11,7 @@ use crate::{Error, Result};
 /// Required pool settings, composable with [`crate::config::load`].
 ///
 /// No `Debug` implementation is provided because URLs may contain credentials.
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Debug, Clone)]
 pub struct Config {
     pub url: String,
     pub max_connections: u32,

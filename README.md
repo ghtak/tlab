@@ -7,7 +7,9 @@ Tokio·PostgreSQL이며 쿼리는 SQLx 0.9 API를 사용한다.
 공개 계약과 검증 결과는 [DB 설계](docs/specs/database/plan.md)를 참조한다.
 
 `tlab-app`은 기본적으로 `127.0.0.1:8080`에서 HTTP를 실행한다. 별도 터미널에서
+`just db-up postgres`로 DB를 시작하고 `.env.example`을 `.env`로 복사한 다음
 `just app-run` → `just app-health`로 생존 확인 응답 `ok`·`HTTP 200`을 확인하고 Ctrl+C로 종료한다.
+앱은 실행 디렉터리의 `.env`를 읽으며 기존 환경변수가 우선한다. PostgreSQL 포트를 변경하면 `.env`의 URL도 변경한다.
 HTTPS·설정 변경과 검증 도구의 역할은 [HTTP 앱 도구](docs/verification/tools/http/README.md)를 참조한다.
 
 로컬 테스트용 PostgreSQL·Valkey·Oracle Free 환경은 [DB 검증 도구](docs/verification/tools/database/README.md)를 참조한다.

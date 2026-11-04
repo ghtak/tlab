@@ -32,6 +32,13 @@ pub struct Config {
     pub tracing: tlab::tracing::Config,
     pub server: ServerConfig,
     pub passwd_hasher: password::argon2id::Config,
+    pub database: tlab::sqlxdb::Config,
+}
+
+pub mod db {
+    pub type Database = tlab::sqlxdb::Database<sqlx::Postgres>;
+    pub type Context<'a> = tlab::sqlxdb::Context<'a, sqlx::Postgres>;
+    pub type QueryBuilder = sqlx::QueryBuilder<sqlx::Postgres>;
 }
 
 /// Owns application settings and prepares servers; main owns execution.
@@ -40,6 +47,7 @@ pub struct Container {
     pub http: http::Server,
     pub https: http::Server,
     pub passwd_hasher: Box<dyn password::PasswordHasher>,
+    pub database: db::Database,
 }
 
 impl Container {
@@ -49,11 +57,13 @@ impl Container {
         let http = http::Server::new(&config.server.http).await?;
         let https = http::Server::new(&config.server.https).await?;
         let passwd_hasher = Box::new(password::argon2id::Hasher::new(&config.passwd_hasher)?);
+        let database = db::Database::new(&config.database).await?;
         Ok(Self {
             config,
             http,
             https,
             passwd_hasher,
+            database,
         })
     }
 }
@@ -79,7 +89,8 @@ mod tests {
             }),
         ] {
             let config: Config = serde_json::from_value(serde_json::json!({
-                "tracing": {}, "server": server, "passwd_hasher": {}
+                "tracing": {}, "server": server, "passwd_hasher": {},
+                "database": {"url": "postgres://localhost/test", "max_connections": 5}
             }))
             .unwrap();
             assert!(matches!(

@@ -2,11 +2,16 @@ mod app;
 
 use std::{path::PathBuf, sync::Arc};
 
-use axum::{Router, routing::get};
+use axum::{Json, Router, extract::State, routing::get};
 use tlab::Error;
 
 #[tokio::main]
 async fn main() -> tlab::Result<()> {
+    match dotenvy::from_path(".env") {
+        Ok(_) => {},
+        Err(dotenvy::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {},
+        Err(error) => return Err(Error::InvalidInput(format!("failed to load .env: {error}").into())),
+    }
     let config_path = std::env::var_os("TLAB_CONFIG_FILE")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("config/app.toml"));
@@ -17,7 +22,10 @@ async fn main() -> tlab::Result<()> {
     let container = Arc::new(app::Container::new(config).await?);
 
     let mut router: Router<Arc<app::Container>> =
-        Router::new().route("/health", get(|| async { "ok" }));
+        Router::new()
+            .route("/health", get(|| async { "ok" }))
+            .route("/db_status", get(db_status));
+        
     if let Some(files) = &container.config.server.static_files {
         router = router.merge(files.router()?);
     }
@@ -38,6 +46,10 @@ async fn main() -> tlab::Result<()> {
         }
     )?;
     Ok(())
+}
+
+async fn db_status(State(container): State<Arc<app::Container>>) -> Json<tlab::sqlxdb::PoolStatus> {
+    Json(container.database.pool_status())
 }
 
 async fn shutdown_signal() -> tlab::Result<()> {

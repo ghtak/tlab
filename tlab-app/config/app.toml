@@ -14,6 +14,11 @@ memory_kib = 19456
 iterations = 2
 parallelism = 1
 
+[database]
+# Set TLAB_APP_DATABASE__URL in .env or the environment.
+url = ""
+max_connections = 5
+
 [tracing.console]
 filter = "info"
 ansi = true
