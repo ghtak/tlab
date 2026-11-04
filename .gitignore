@@ -29,3 +29,5 @@ rustc-ice-*.txt
 # Application logs
 /logs/
 /tlab-app/logs/
+
+*.pem

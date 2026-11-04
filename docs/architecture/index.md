@@ -4,7 +4,7 @@
 
 워크스페이스는 공통 라이브러리 [`tlab`](../../tlab/Cargo.toml)과 실행 애플리케이션 [`tlab-app`](../../tlab-app/Cargo.toml)으로 구성된다. (확인)
 
-- `tlab`은 에러 처리, 설정 로딩, DB, tracing 등 재사용 가능한 기반 기능을 제공한다.
+- `tlab`은 에러 처리, 설정 로딩, DB, tracing, 키파일 관리 등 재사용 가능한 기반 기능을 제공한다.
 - `tlab-app`은 `tlab`의 기능을 조합하고 실행 환경을 구성한다.
 - 의존 방향은 `tlab-app → tlab`이며, `tlab`은 앱에 의존하지 않는다.
 - 공통 기능은 `tlab`이 제공하고, 설정 선택과 초기화·종료 생명주기는 앱이 관리한다. (확인)
@@ -18,6 +18,7 @@
 - [설정 모듈](../../tlab/src/config.rs): 파일과 환경변수를 병합해 호출자가 정의한 설정 타입으로 읽는다. 상세는 [설정 로딩 명세](../specs/config/load/spec.md)를 참조한다.
 - [DB 모듈](../../tlab/src/sqlxdb.rs): SQLx 기반의 DB 접근과 트랜잭션 관리를 제공한다. 상세는 [DB 설계](../specs/database/plan.md)를 참조한다.
 - [tracing 모듈](../../tlab/src/tracing.rs): 콘솔·파일 출력과 프로세스 전역 tracing 초기화를 제공한다.
+- [키파일 모듈](../../tlab/src/keyfiles.rs): 소비자가 포함하는 파일 설정 타입과 TLS·Ed25519 자료의 로드·개발용 생성을 제공한다. 상세는 [키파일 관리 명세](../specs/keyfiles/spec.md)를 참조한다.
 - [앱 진입점](../../tlab-app/src/main.rs): Tokio 기반으로 설정 로드와 tracing 초기화를 연결한다. (확인)
 
 ## 개발 가이드

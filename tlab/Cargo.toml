@@ -8,12 +8,16 @@ anyhow = "1"
 config = "0.15"
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+tempfile = "3"
+time = "0.3"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 sqlx = { version = "0.9", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls-ring-native-roots"] }
 
 [dev-dependencies]
-tempfile = "3"
+ring = "0.17"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 serde_json = "1"
 tracing = "0.1"
