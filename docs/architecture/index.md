@@ -2,24 +2,23 @@
 
 ## 프로젝트 역할과 범위
 
-`tlab`은 Rust 애플리케이션에서 공통으로 사용하는 기반 기능을 제공하는 코어 라이브러리 크레이트다.
-제공할 기능의 범위는 에러 처리, DB, tracing, config다. 이는 사용자가 지정한 프로젝트 방향이다. (확인)
+워크스페이스는 공통 라이브러리 [`tlab`](../../tlab/Cargo.toml)과 실행 애플리케이션 [`tlab-app`](../../tlab-app/Cargo.toml)으로 구성된다. (확인)
 
-설계·구현 시 이 범위를 기준으로 공통 기능의 책임과 공개 인터페이스를 정리한다.
-각 영역의 세부 기능·API·의존성·모듈 경계는 관련 요구사항과 설계에서 구체화한다. (추론)
+- `tlab`은 에러 처리, 설정 로딩, DB, tracing 등 재사용 가능한 기반 기능을 제공한다.
+- `tlab-app`은 `tlab`의 기능을 조합하고 실행 환경을 구성한다.
+- 의존 방향은 `tlab-app → tlab`이며, `tlab`은 앱에 의존하지 않는다.
+- 공통 기능은 `tlab`이 제공하고, 설정 선택과 초기화·종료 생명주기는 앱이 관리한다. (확인)
+
+이 개요에는 역할·책임·의존 방향을 정리한다.
+상세 계약과 결정 근거는 필요할 때 기능별 문서로 구성하고 여기에서 참조한다. (확인)
 
 ## 현재 구현 상태
 
-워크스페이스는 [`tlab` 크레이트](../../tlab/Cargo.toml) 하나로 구성되어 있다.
-[라이브러리 진입점](../../tlab/src/lib.rs)은 공통 `Error`·`Result`를 공개한다.
-[에러 모듈](../../tlab/src/error.rs)은 `InvalidInput`, `IllegalState`, `IoError`, `Config`, `DbError`, `Internal`과 I/O·설정·SQLx·anyhow 변환을 제공한다.
-DB 오류는 원본 SQLx 오류를 보존하며, 기존 공통 에러 변환의 의미는 유지한다.
-[설정 모듈](../../tlab/src/config.rs)은 파일과 필수 접두사의 환경변수를 병합하여 호출자가 정의한 설정 타입으로 읽는다.
-파일 지원 형식·판별은 `config` 크레이트에 위임하며, 계약·검증 결과는 [설정 로딩 명세](../specs/config/load/spec.md)를 참조한다.
-[DB 모듈](../../tlab/src/sqlxdb.rs)은 SQLx 풀·연결·트랜잭션·실행 문맥과 풀 상태 조회를 제공한다.
-타입은 SQLx 백엔드에 대해 제네릭이며, 최초 지원·실행 검증 대상은 Tokio의 PostgreSQL이다.
-공개 계약·검증·리뷰 결과는 [DB 설계](../specs/database/plan.md)를 참조한다.
-기존 예제 `add`와 테스트는 유지되어 있고, tracing 기능은 아직 구현되어 있지 않다. (확인)
+- [에러 모듈](../../tlab/src/error.rs): 공통 에러 타입과 변환을 제공한다. 상세는 [에러 설계](../specs/error/plan.md)를 참조한다.
+- [설정 모듈](../../tlab/src/config.rs): 파일과 환경변수를 병합해 호출자가 정의한 설정 타입으로 읽는다. 상세는 [설정 로딩 명세](../specs/config/load/spec.md)를 참조한다.
+- [DB 모듈](../../tlab/src/sqlxdb.rs): SQLx 기반의 DB 접근과 트랜잭션 관리를 제공한다. 상세는 [DB 설계](../specs/database/plan.md)를 참조한다.
+- [tracing 모듈](../../tlab/src/tracing.rs): 콘솔·파일 출력과 프로세스 전역 tracing 초기화를 제공한다.
+- [앱 진입점](../../tlab-app/src/main.rs): Tokio 기반으로 설정 로드와 tracing 초기화를 연결한다. (확인)
 
 ## 개발 가이드
 
