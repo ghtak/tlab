@@ -18,6 +18,7 @@
 - [요구사항 정의 가이드](agent/requirements-definition/index.md) · [requirements-definition 스킬](../.agents/skills/requirements-definition/SKILL.md)
 - [설계 문서 작성 가이드 초안](agent/create-plan/index.md) · [create-plan 스킬](../.agents/skills/create-plan/SKILL.md)
 - [작은 변경 처리 가이드](agent/small-change/index.md) · [small-change 스킬](../.agents/skills/small-change/SKILL.md)
+- [커밋 가이드](agent/commit/index.md) · [commit 스킬](../.agents/skills/commit/SKILL.md)
 - [코드 리뷰 가이드 초안](agent/code-review/index.md) · [code-review 스킬](../.agents/skills/code-review/SKILL.md)
 - [앱 수준 검증 도구·방법 구성 가이드](agent/create-verification/index.md) · [create-verification 스킬](../.agents/skills/create-verification/SKILL.md)
 - [문서 관리 규칙 초안](agent/document-management/index.md): 공통 참조 규칙
