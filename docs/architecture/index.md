@@ -12,9 +12,11 @@
 
 워크스페이스는 [`tlab` 크레이트](../../tlab/Cargo.toml) 하나로 구성되어 있다.
 [라이브러리 진입점](../../tlab/src/lib.rs)은 공통 `Error`·`Result`를 공개한다.
-[에러 모듈](../../tlab/src/error.rs)은 `IllegalState`, `IoError`, `Internal`과 I/O·anyhow 변환을 제공한다.
+[에러 모듈](../../tlab/src/error.rs)은 `InvalidInput`, `IllegalState`, `IoError`, `Config`, `Internal`과 I/O·설정·anyhow 변환을 제공한다.
 에러 종류는 필요할 때 확장하며, DB는 [공통 에러 설계](../specs/error/plan.md)의 변환 계약만 정의한 상태다.
-기존 예제 `add`와 테스트는 유지되어 있고, DB·tracing·config 기능은 아직 구현되어 있지 않다. (확인)
+[설정 모듈](../../tlab/src/config.rs)은 파일과 필수 접두사의 환경변수를 병합하여 호출자가 정의한 설정 타입으로 읽는다.
+파일 지원 형식·판별은 `config` 크레이트에 위임하며, 계약·검증 결과는 [설정 로딩 명세](../specs/config/load/spec.md)를 참조한다.
+기존 예제 `add`와 테스트는 유지되어 있고, DB·tracing 기능은 아직 구현되어 있지 않다. (확인)
 
 ## 개발 가이드
 
