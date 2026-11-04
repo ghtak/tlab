@@ -2,6 +2,7 @@ pub mod config;
 pub mod error;
 pub mod http;
 pub mod keyfiles;
+pub mod password;
 pub mod sqlxdb;
 pub mod tracing;
 
