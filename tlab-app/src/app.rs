@@ -42,7 +42,7 @@ pub mod db {
     pub type QueryBuilder = sqlx::QueryBuilder<sqlx::Postgres>;
 }
 
-/// Owns application settings and prepares servers; main owns execution.
+/// Owns application settings and prepares servers; the HTTP module runs them.
 pub struct Container {
     pub config: Config,
     pub http: http::Server,

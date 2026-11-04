@@ -113,3 +113,9 @@ flowchart LR
 | 테스트 용이성 | 3/4 | PostgreSQL 통합 검증 존재; 자격 증명 제공자 제약 검증 부재 |
 
 이전 격리 SQL 반복 실행과 실제 실행기 통합 테스트 결과를 재사용했다. 신규 SQL 파일의 앱 CLI 경유 실행, 기존 스키마 호환성, 운영 복구 및 향후 인증 코드의 실제 영향은 미확인이다. (확인)
+
+## 앱 실행 경로 정리
+
+- 사용자 요청에 따라 단계별 승인 없이 진행한다. 공통 옵션 구조로 `--migrate`를 해석하고 HTTP Router 조립·두 서버 실행·종료를 앱 HTTP 모듈로 이동한다. 기존 옵션 유효성 및 실행 경로와 HTTP 동작은 유지한다. (확인·추론)
+- 구현·검증: `cargo test --workspace --locked --offline`, `cargo clippy --workspace --all-targets --locked --offline -- -D warnings`, `cargo fmt --all -- --check` 통과. 기본 테스트에서는 기존 DB 연동 5개가 제외되었다. 로컬 PostgreSQL에 연결한 앱에서 HTTP·HTTPS `/health`, HTTP `/db_status`, SIGTERM 종료 후 리스너 해제 및 빈 디렉터리의 마이그레이션 명령 정상 종료를 확인했다. (확인)
+- 자체 점검: 기존 옵션의 정상·오류 분기, Router·신호 처리와 실행 경로를 최종 변경과 대조했다. 별도 기능 추가나 DB 상태 변경은 없으며, 실제 SQL 파일의 앱 CLI 실행은 이번 검증 범위에 포함하지 않았다. (확인)
