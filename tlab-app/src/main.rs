@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use axum::{Router, routing::get};
 use serde::Deserialize;
 use tlab::{Error, http};
-use tokio::sync::watch;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -65,48 +64,35 @@ async fn main() -> tlab::Result<()> {
         router = router.merge(files.router()?);
     }
 
-    // Prepare all enabled listeners before serving any requests. On a later
-    // failure, previously prepared Server values are dropped and release ports.
-    let http = bind(config.server.http.as_ref(), router.clone()).await?;
-    let https = bind(config.server.https.as_ref(), router).await?;
-    let (stop, signal) = watch::channel(false);
-    let running = async {
-        tokio::try_join!(serve(http, signal.clone()), serve(https, signal))?;
-        Ok(())
-    };
-    tokio::pin!(running);
-
-    tracing::info!("application started");
-    tokio::select! {
-        result = &mut running => result,
-        result = shutdown_signal() => {
-            result?;
+    // Prepare TLS for all enabled instances before opening listeners.
+    let http = prepare(config.server.http.as_ref()).await?;
+    let https = prepare(config.server.https.as_ref()).await?;
+    tracing::info!("application starting");
+    tokio::try_join!(
+        run(http.as_ref(), router.clone()),
+        run(https.as_ref(), router),
+        async {
+            shutdown_signal().await?;
             tracing::info!("application stopping");
-            stop.send_replace(true);
-            running.await
+            for server in [http.as_ref(), https.as_ref()].into_iter().flatten() {
+                server.graceful_shutdown();
+            }
+            Ok::<(), Error>(())
         }
+    )?;
+    Ok(())
+}
+
+async fn prepare(config: Option<&http::Config>) -> tlab::Result<Option<http::Server>> {
+    match config {
+        Some(config) => Ok(Some(http::Server::new(config).await?)),
+        None => Ok(None),
     }
 }
 
-async fn bind(config: Option<&http::Config>, router: Router) -> tlab::Result<Option<http::Server>> {
-    let Some(config) = config else {
-        return Ok(None);
-    };
-    let server = http::Server::bind(config, router).await?;
-    tracing::info!(address = %server.local_addr(), tls = config.tls.is_some(), "listener prepared");
-    Ok(Some(server))
-}
-
-async fn serve(
-    server: Option<http::Server>,
-    mut signal: watch::Receiver<bool>,
-) -> tlab::Result<()> {
+async fn run(server: Option<&http::Server>, router: Router) -> tlab::Result<()> {
     if let Some(server) = server {
-        server
-            .serve(async move {
-                let _ = signal.wait_for(|stop| *stop).await;
-            })
-            .await?;
+        server.run(router).await?;
     }
     Ok(())
 }

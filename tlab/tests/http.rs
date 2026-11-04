@@ -27,15 +27,14 @@ fn config() -> Config {
     }
 }
 
-// This composition belongs to the caller: prepare every enabled instance before
-// serving any of them. An error drops all previously prepared listeners.
-async fn prepare(configs: &[Config], router: Router) -> tlab::Result<Vec<Server>> {
+// The caller prepares TLS for every enabled instance before starting runs.
+async fn prepare(configs: &[Config], router: Router) -> tlab::Result<Vec<TestServer>> {
     if configs.is_empty() {
         return Err(Error::InvalidInput("no server instances enabled".into()));
     }
     let mut servers = Vec::new();
     for config in configs {
-        servers.push(Server::bind(config, router.clone()).await?);
+        servers.push(TestServer::new(config, router.clone()).await?);
     }
     Ok(servers)
 }
@@ -114,11 +113,61 @@ where
     .unwrap()
 }
 
-fn start(server: Server) -> (oneshot::Sender<()>, JoinHandle<tlab::Result<()>>) {
+// Reserve distinct test ports until startup. Production binds only in run().
+struct TestServer {
+    server: Arc<Server>,
+    router: Router,
+    reservation: std::net::TcpListener,
+}
+
+impl TestServer {
+    async fn new(config: &Config, router: Router) -> tlab::Result<Self> {
+        let reservation = std::net::TcpListener::bind(config.bind).map_err(anyhow::Error::from)?;
+        let mut config = config.clone();
+        config.bind = reservation.local_addr().unwrap();
+        let server = Arc::new(Server::new(&config).await?);
+        Ok(Self {
+            server,
+            router,
+            reservation,
+        })
+    }
+
+    fn local_addr(&self) -> SocketAddr {
+        self.reservation.local_addr().unwrap()
+    }
+}
+
+async fn start(server: TestServer) -> (oneshot::Sender<()>, JoinHandle<tlab::Result<()>>) {
+    let addr = server.local_addr();
+    let TestServer {
+        server,
+        router,
+        reservation,
+    } = server;
     let (stop, stopped) = oneshot::channel();
-    let task = tokio::spawn(server.serve(async {
-        let _ = stopped.await;
-    }));
+    drop(reservation);
+    let task = tokio::spawn(async move {
+        tokio::try_join!(server.run(router), async {
+            let _ = stopped.await;
+            server.graceful_shutdown();
+            Ok::<(), Error>(())
+        })?;
+        Ok(())
+    });
+    // Wait for binding rather than relying on scheduler timing.
+    timeout(WAIT, async {
+        loop {
+            if let Ok(connection) = TcpStream::connect(addr).await {
+                drop(connection);
+                break;
+            }
+            assert!(!task.is_finished(), "server exited before binding");
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .unwrap();
     (stop, task)
 }
 
@@ -176,7 +225,7 @@ async fn reject_invalid_server_settings_and_missing_tls() {
         },
     ] {
         assert!(matches!(
-            Server::bind(&settings, Router::new()).await,
+            Server::new(&settings).await,
             Err(Error::InvalidInput(_))
         ));
     }
@@ -191,7 +240,7 @@ async fn reject_invalid_server_settings_and_missing_tls() {
         ..config()
     };
     assert!(matches!(
-        Server::bind(&settings, Router::new()).await,
+        Server::new(&settings).await,
         Err(Error::Internal(_))
     ));
     assert!(!tls.private_key.exists());
@@ -204,48 +253,31 @@ async fn reject_invalid_server_settings_and_missing_tls() {
         ..config()
     };
     assert!(matches!(
-        Server::bind(&bad, Router::new()).await,
+        Server::new(&bad).await,
         Err(Error::InvalidInput(_))
     ));
 }
 
 #[tokio::test]
-async fn prepared_server_is_not_serving_and_drop_releases_port() {
-    let server = Server::bind(
-        &config(),
-        Router::new().route("/", get(|| async { "ready" })),
-    )
-    .await
-    .unwrap();
-    let addr = server.local_addr();
-    assert!(matches!(server.tls_reloader(), Err(Error::IllegalState(_))));
-    let mut tcp = TcpStream::connect(addr).await.unwrap();
-    tcp.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
-        .await
-        .unwrap();
-    assert!(
-        timeout(Duration::from_millis(30), tcp.read_u8())
-            .await
-            .is_err()
-    );
-    drop(tcp);
-    drop(server);
-    drop(std::net::TcpListener::bind(addr).unwrap());
-}
-
-#[tokio::test]
-async fn app_preparation_failure_releases_already_prepared_listeners() {
+async fn construction_does_not_bind_and_run_reports_port_conflicts() {
     let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = occupied.local_addr().unwrap();
-    drop(occupied);
     let settings = Config {
         bind: addr,
         ..config()
     };
+    // TLS/config preparation succeeds even while the address is occupied.
+    let server = Server::new(&settings).await.unwrap();
     assert!(matches!(
-        prepare(&[settings.clone(), settings], Router::new()).await,
-        Err(Error::Internal(_))
+        server.reload_tls_config().await,
+        Err(Error::IllegalState(_))
     ));
+    let error = server.run(Router::new()).await.unwrap_err();
+    assert!(error.to_string().contains("failed to bind HTTP listener"));
+    drop(occupied);
+    // The same server can run after the conflicting listener is removed.
+    server.graceful_shutdown();
+    server.run(Router::new()).await.unwrap();
     drop(std::net::TcpListener::bind(addr).unwrap());
 }
 
@@ -295,7 +327,10 @@ async fn app_instances_share_state_layers_and_static_files() {
             .zip(&configs)
             .map(|(server, config)| (server.local_addr(), config.tls.is_some()))
             .collect();
-        let controls: Vec<_> = servers.into_iter().map(start).collect();
+        let mut controls = Vec::new();
+        for server in servers {
+            controls.push(start(server).await);
+        }
         for (method, path, status, body) in [
             ("GET", "/api", "200", "state-body"),
             ("GET", "/static/hello.txt", "200", "file-body"),
@@ -398,13 +433,13 @@ async fn reload_changes_new_handshakes_and_preserves_existing_connections() {
     let http_server = servers.pop().unwrap();
     let http = http_server.local_addr();
     let https = https_server.local_addr();
-    let reloader = https_server.tls_reloader().unwrap();
-    let (http_stop, http_task) = start(http_server);
-    let (stop, task) = start(https_server);
+    let reloader = https_server.server.clone();
+    let (http_stop, http_task) = start(http_server).await;
+    let (stop, task) = start(https_server).await;
     let existing = connect_tls(https, &[&a]).await;
     assert_eq!(existing.get_ref().1.peer_certificates().unwrap()[0], a.cert);
     b.write(&tls);
-    let (one, two) = tokio::join!(reloader.reload(), reloader.reload());
+    let (one, two) = tokio::join!(reloader.reload_tls_config(), reloader.reload_tls_config());
     one.unwrap();
     two.unwrap();
     let updated = connect_tls(https, &[&b]).await;
@@ -414,17 +449,17 @@ async fn reload_changes_new_handshakes_and_preserves_existing_connections() {
 
     // Partial replacement and malformed secret input must not replace B.
     fs::write(&tls.private_key, &a.key).unwrap();
-    assert!(reloader.reload().await.is_err());
+    assert!(reloader.reload_tls_config().await.is_err());
     fs::write(
         &tls.private_key,
         "-----BEGIN PRIVATE KEY-----\nsecret-invalid-key\n-----END PRIVATE KEY-----\n",
     )
     .unwrap();
-    let error = reloader.reload().await.unwrap_err();
+    let error = reloader.reload_tls_config().await.unwrap_err();
     assert!(!format!("{error:?}").contains("secret-invalid-key"));
     fs::remove_file(&tls.private_key).unwrap();
     fs::remove_file(&tls.certificate_chain).unwrap();
-    assert!(reloader.reload().await.is_err());
+    assert!(reloader.reload_tls_config().await.is_err());
     assert!(!tls.private_key.exists());
     assert!(!tls.certificate_chain.exists());
     let retained = connect_tls(https, &[&b]).await;
@@ -457,9 +492,9 @@ async fn graceful_shutdown_waits_for_a_running_response() {
             }
         }),
     );
-    let server = Server::bind(&config(), router).await.unwrap();
+    let server = TestServer::new(&config(), router).await.unwrap();
     let addr = server.local_addr();
-    let (stop, task) = start(server);
+    let (stop, task) = start(server).await;
     let response =
         tokio::spawn(
             async move { request(TcpStream::connect(addr).await.unwrap(), "GET", "/").await },
@@ -510,8 +545,8 @@ async fn deadline_stops_servers_with_incomplete_tls_and_closes_running_http() {
     let http_server = servers.pop().unwrap();
     let http = http_server.local_addr();
     let https = https_server.local_addr();
-    let (http_stop, http_task) = start(http_server);
-    let (stop, task) = start(https_server);
+    let (http_stop, http_task) = start(http_server).await;
+    let (stop, task) = start(https_server).await;
     let mut stalled = TcpStream::connect(https).await.unwrap();
     stalled.write_all(&[22, 3, 3, 0, 100, 1]).await.unwrap();
     let mut running = TcpStream::connect(http).await.unwrap();
@@ -522,14 +557,8 @@ async fn deadline_stops_servers_with_incomplete_tls_and_closes_running_http() {
     timeout(WAIT, entering).await.unwrap().unwrap();
     stop.send(()).unwrap();
     http_stop.send(()).unwrap();
-    let error = timeout(WAIT, task).await.unwrap().unwrap().unwrap_err();
-    assert!(error.to_string().contains("timed out"));
-    let error = timeout(WAIT, http_task)
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap_err();
-    assert!(error.to_string().contains("timed out"));
+    timeout(WAIT, task).await.unwrap().unwrap().unwrap();
+    timeout(WAIT, http_task).await.unwrap().unwrap().unwrap();
     assert!(timeout(WAIT, running.read_u8()).await.unwrap().is_err());
     // An incomplete TLS handshake uses the backend timeout. The library only
     // guarantees bounded server shutdown, not immediate termination of this IO.
@@ -539,7 +568,7 @@ async fn deadline_stops_servers_with_incomplete_tls_and_closes_running_http() {
 }
 
 #[tokio::test]
-async fn cancelling_serve_closes_listeners_and_connections() {
+async fn cancelling_run_closes_listeners_and_connections() {
     let directory = tempfile::tempdir().unwrap();
     let tls = files(directory.path());
     let identity = Identity::new();
@@ -548,9 +577,9 @@ async fn cancelling_serve_closes_listeners_and_connections() {
         tls: Some(tls),
         ..config()
     };
-    let server = Server::bind(&settings, Router::new()).await.unwrap();
+    let server = TestServer::new(&settings, Router::new()).await.unwrap();
     let https = server.local_addr();
-    let (_stop, task) = start(server);
+    let (_stop, task) = start(server).await;
     // A completed TLS handshake ensures the backend has accepted connections.
     let mut connection = connect_tls(https, &[&identity]).await;
     task.abort();
@@ -573,9 +602,9 @@ async fn static_symlinks_follow_filesystem_semantics() {
     }
     .router()
     .unwrap();
-    let server = Server::bind(&config(), router).await.unwrap();
+    let server = TestServer::new(&config(), router).await.unwrap();
     let addr = server.local_addr();
-    let (stop, task) = start(server);
+    let (stop, task) = start(server).await;
     assert!(
         request(
             TcpStream::connect(addr).await.unwrap(),
@@ -602,16 +631,31 @@ async fn app_try_join_failure_drops_the_other_instance() {
             }
         }),
     );
-    let server = Server::bind(&config(), router).await.unwrap();
+    let server = TestServer::new(&config(), router).await.unwrap();
     let addr = server.local_addr();
+    let TestServer {
+        server,
+        router,
+        reservation,
+    } = server;
+    drop(reservation);
     let task = tokio::spawn(async move {
         // Simulate another instance failing after this server has begun serving.
-        tokio::try_join!(server.serve(std::future::pending()), async {
+        tokio::try_join!(server.run(router), async {
             entering.await.unwrap();
             Err::<(), _>(Error::Internal(anyhow::anyhow!("other instance failed")))
         },)
     });
-    let mut connection = TcpStream::connect(addr).await.unwrap();
+    let mut connection = timeout(WAIT, async {
+        loop {
+            if let Ok(connection) = TcpStream::connect(addr).await {
+                break connection;
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .unwrap();
     connection
         .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
         .await

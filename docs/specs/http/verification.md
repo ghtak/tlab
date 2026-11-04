@@ -12,6 +12,69 @@ status: draft
 | verifies | [SPEC-HTTP](./spec.md) | 단일 서버와 상위 HTTP·HTTPS 조립 요구사항 |
 | verifies | [PLN-HTTP](./plan.md) | 최종 공개 API·소유권·종료·TLS 계약 |
 
+## 최신 코드 리뷰 — 명시적 종료 제어
+
+- 대상: `f6c857586adceb62ec6282f08b70feda26076675` → HTTP 라이브러리·앱·관련 테스트·명세의 미커밋 변경. 이번 작업과 무관한 미추적 todo 문서는 제외했다.
+- 식별: `Cargo.lock`, `tlab/Cargo.toml`, `tlab/src/http.rs`, `tlab/tests/http.rs`, `tlab-app/src/main.rs` 순서의 경로·NUL·파일 바이트·NUL SHA-256은 `a50532a7f74bdf442dd10b250092fbd3f02920c0529a87350ddc4e2989705fe6`이다.
+- 선행 검사: fmt → Clippy → audit 순서로 모두 통과하여 LLM 리뷰를 수행했다. 이전 포맷 실패는 현재 대상에서 해소되었다. 코드 수정은 하지 않았다.
+- 판정: **수정 필요**. 초기 제안 배점 기준 **75/100**, **R2**. 주요 발견 사항은 점수와 관계없이 수정 대상이다.
+
+### 발견 사항
+
+1. **주요: provider 기능 조합에 따라 TLS 준비가 panic한다.** [http.rs:124](../../../tlab/src/http.rs)의 `RustlsConfig::from_pem`은 내부에서 Rustls 기본 provider 선택을 사용한다. tlab이 활성화한 ring과 소비자 의존성이 활성화한 aws_lc_rs가 함께 존재하고 앱이 기본 provider를 등록하지 않으면 Rustls 선택 과정과 axum-server의 JoinHandle unwrap에서 panic한다. `Server::new()`가 `Err`를 반환하지 않고 호출 task가 실패한다. 기존 구현은 ring provider를 명시했으므로 이 전역 초기화 전제에 의존하지 않았다. (확인)
+   - 재현: `/private/tmp/tlab-review-provider-200zr9zi`의 별도 소비자 crate에 tlab 경로 의존성과 `rustls`의 aws_lc_rs feature를 선언하고 `cargo run --manifest-path /private/tmp/tlab-review-provider-200zr9zi/Cargo.toml --target-dir /Users/codex/works/tlab/target --offline` 실행. Rustls 0.23.46·axum-server 0.8.0에서 종료 코드 101, provider 선택 panic을 확인했다. 소켓은 열지 않았다.
+   - 대조: 같은 소비자 main에서 `rustls::crypto::ring::default_provider().install_default()`를 먼저 호출하면 `Server::new()`가 정상 반환했다. 재현 원본은 해당 디렉터리의 `without-provider.rs`, 대조 코드는 `src/main.rs`다.
+   - 수정 방향: Rustls 제공 API는 유지하되 provider 초기화 책임·선택 정책을 정하고 앱과 소비자 예제에 반영한다. 라이브러리에서 미충족 전제를 검사해 panic 대신 Result 오류를 전달하거나 명시적 provider 전달을 지원하는 방안을 검토한다. 프로세스 전역 설정을 라이브러리가 무조건 덮어쓰면 안 된다. 앱 초기화 책임은 [Rustls 공식 문서](https://docs.rs/rustls/latest/rustls/crypto/struct.CryptoProvider.html#using-the-per-process-default-cryptoprovider)와 일치한다.
+2. **경미: 테스트 포트 인계에 경쟁 구간이 있다.** [http.rs 통합 테스트:149](../../../tlab/tests/http.rs)의 `drop(reservation)` 뒤 별도 task가 같은 주소에 다시 bind한다. 그 사이 다른 프로세스·병렬 테스트가 포트를 확보하면 정상 코드에서도 기동 실패나 준비 대기의 오판이 가능하다. 이번 실행에서는 재현되지 않았으며 코드 흐름에서 도출한 테스트 안정성 문제다. 바인딩된 포트 0의 실제 주소를 동기화하여 받는 방식이나 충돌 시 예약·기동 재시도를 고려한다. (추론)
+
+### 품질 점수
+
+| 항목 | 점수 / 4 | 근거 |
+| --- | ---: | --- |
+| 기능 | 2 | 기본 HTTP·HTTPS·종료·재로드 계약은 통과하지만 소비자 TLS 준비의 반환 계약에 보완 필요 |
+| 가독성과 구조 | 4 | 앱의 종료 요청과 라이브러리 실행·TLS 책임이 분리되고 중복 설정 조립 제거 |
+| 안정성 | 2 | provider 조합에 따른 준비 단계 panic 재현. 종료·취소·재로드 실패 보존은 기존 테스트로 확인 |
+| 보안 | 4 | audit 통과, 검증된 키파일 스냅샷·비밀값 비노출·실패 시 활성 TLS 보존 유지. 발견한 provider 문제는 가용성 문제로 평가 |
+| 성능 | 4 | 요청 경로에 새 blocking I/O 없음. 키파일 작업은 spawn_blocking, 재로드만 mutex 적용. 부하 측정은 미수행 |
+| 테스트 용이성 | 3 | 실제 HTTP·HTTPS·취소·기한·TLS 교체 검증 유지. 포트 인계 경쟁과 provider 조합 회귀 검증 보완 필요 |
+
+### 검사·리스크·미확인 범위
+
+- `cargo fmt --all -- --check`: 종료 코드 0. `cargo clippy --workspace --all-targets --locked -- -D warnings`: 종료 코드 0·경고 없음. `cargo audit`: 종료 코드 0, 266개 의존성, 1,403개 advisory. DB 기준 `965bf9ad083b58e6340d65829d85217b18be9290`.
+- `cargo test --workspace --locked`: 59개 통과, 기존 ignored 5개. 실제 소켓 테스트는 승인된 환경에서 수행했다. Rust/Cargo 1.97.1, Darwin arm64, 기본 워크스페이스 feature 기준이다.
+- Miri 비대상: unsafe·수동 메모리 변경 없이 Tokio·백엔드의 동기화와 소켓 동작을 조립하는 변경이며 실제 연결·취소 테스트로 확인했다. Geiger는 비필수 참고 도구로 미실행했다.
+- 복구 가능성: 앱과 라이브러리 호출부를 함께 롤백하면 복구 가능으로 판단한다. 설정 스키마·DB·외부 발송의 변경이 없고 개발용 TLS 파일은 이전 키파일 계약으로도 읽을 수 있다. 실제 롤백은 수행하지 않았다. (추론)
+- 아키텍처 변경 있음: `bind/serve`에서 `new/run/graceful_shutdown`으로 공개 API와 준비·바인딩·종료 제어 경계가 바뀌었다. 워크스페이스 앱·테스트는 함께 이행되어 있다. 외부 소비자는 API 수정 및 provider 초기화 전제 확인이 필요하다. 양방향 복구·구조 변경에 따라 R2로 분류한다. (확인·추론)
+- 미확인: 운영 배포·외부 소비자 전수 호환성·Windows 실행·부하·롤백 실연습·PostgreSQL 실연동. 기본 feature 테스트 통과가 모든 소비자 feature 조합의 통과를 의미하지 않는다.
+
+## 이전 코드 리뷰 — 선행 검사 실패
+
+- 대상: `f6c857586adceb62ec6282f08b70feda26076675` → 현재 미커밋 HTTP·앱 변경. `Cargo.lock`, `tlab/Cargo.toml`, `tlab/src/http.rs`, `tlab/tests/http.rs`, `tlab-app/src/main.rs` 순서로 각 경로·NUL·파일 바이트·NUL을 연결한 SHA-256은 `33519f89bc9095308b87a5512c7171a0bdd1f89199cff72fb29c0ccaca510176`이다.
+- `cargo fmt --all -- --check`: 종료 코드 1. `tlab-app/src/main.rs:68`의 `let http =  prepare(...)`에서 불필요한 공백 1개를 지적했다.
+- `cargo clippy --workspace --all-targets --locked -- -D warnings`: 통과. 포맷 검사 실패 후 중단 조건을 적용하기 전에 시작된 검사 결과다. `cargo audit`은 미실행이다.
+- 판정: 선행 검사 기준의 수정 필요. 코드 리뷰 스킬의 필수 검사 통과 조건에 따라 LLM 리뷰·품질 점수·리스크 평가는 미진행이다. 이전 테스트 통과 기록으로 현재 포맷 실패를 대체하지 않는다.
+- 리뷰 요청 범위에 따라 코드를 수정하지 않았다. 공백 정리 후 선행 검사를 순서대로 완료하고 코드 리뷰를 진행해야 한다. (확인)
+
+## 상위의 명시적 종료 제어 확인
+
+- run(router)의 shutdown 인자와 내부 종료 대기를 제거하고 graceful_shutdown()을 공개했다. 앱은 OS 신호 후 해당 메서드를 호출하고 기존 run 완료를 기다린다.
+- cargo test --workspace --locked: 59개 통과, 기존 ignored 5개. cargo clippy --workspace --all-targets --locked -- -D warnings 통과. 실제 앱의 HTTP·HTTPS 응답과 SIGTERM 종료는 [최신 앱 실행 기록](./app/verification.md#명시적-graceful_shutdown-적용-확인)에 남긴다. (확인)
+
+아래는 이전 인터페이스의 확인 기록이다.
+
+## 서버 인터페이스 정리 구현 확인
+
+이번 결과는 `new/run/reload_tls_config`와 RustlsConfig의 PEM API를 사용하는 미커밋 변경 기준이다. 아래 이전 검증·리뷰는 과거 버전에 관한 기록이며 이번 변경의 리뷰 결과가 아니다. (확인)
+
+- `cargo test --workspace --locked`: 59개 통과, 기존 ignored 5개, 실패 없음. 실제 HTTP·HTTPS, 정적 파일, TLS 재로드 성공·실패·취소, 기존 연결 유지, graceful 종료·기한 후 연결 종료·실행 취소를 확인했다.
+- `cargo fmt --all -- --check`: 통과. `cargo clippy --workspace --all-targets --locked -- -D warnings`: 통과, 경고 없음.
+- 생성 시 미바인딩, 실행 시 포트 충돌, 충돌 해소 후 같은 서버 재실행을 확인했다. 종료 기한 테스트는 백엔드의 강제 종료 후 `Ok(())` 반환을 기대한다.
+- 로컬 포트 바인딩은 샌드박스에서 차단되어 승인된 실행 환경에서 테스트했다.
+- 키파일 생성·검증은 기존 모듈에 남기고 PEM 파싱·TLS 설정·ALPN은 axum-server에 맡겼다. `TlsState`·`load_tls`·별도 종료 helper를 제거했다.
+- 사용자 요청 범위는 설계·구현까지이며 별도 자체 점검·정식 리뷰·audit은 수행하지 않았다. 후속 앱 적용 요청의 실제 실행 결과는 [앱 확인 기록](./app/verification.md#newrun-적용-후-실제-앱-확인)을 참조한다. (확인)
+
+## 이전 버전 검증·리뷰
+
 ## 대상과 환경
 
 - 비교 기준: `2991b82f0f95c6f7b9534d1137894a9c7168d95e` → 미커밋 변경. 새 HTTP 소스·테스트와 Cargo 의존성, 관련 문서를 포함한다.

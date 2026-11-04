@@ -11,6 +11,31 @@ status: draft
 | --- | --- | --- |
 | verifies | [SPEC-HTTP-APP](./spec.md) | 앱 기동·상태 확인·설정·종료 |
 
+## 명시적 graceful_shutdown 적용 확인
+
+- run은 Router만 받고, 앱이 OS 신호 후 각 서버의 graceful_shutdown()을 직접 호출한다. try_join!은 이미 실행 중인 run의 종료 완료를 기다린다. 종료 요청 뒤 run을 다시 호출하지 않는다.
+- 워크스페이스 테스트 59개 통과, 기존 ignored 5개. Clippy 경고 없음, 앱 빌드 통과.
+- 실제 HTTP·HTTPS 양쪽 /health의 200·ok를 확인한 뒤 SIGTERM을 전달했다. 명시적 종료 요청 후 앱 종료 코드 0과 두 리스너의 연결 거부를 확인했다. HTTPS 인증서 검증을 유지했고 임시 프로세스·설정·인증서·로그를 정리했다. (확인)
+
+아래는 이전 종료 조립 방식에 관한 기록이다.
+
+## main 종료 대기 정리 확인
+
+- `main()`의 `select!`를 제거하고 HTTP·HTTPS 실행과 공통 종료 알림 전송을 `try_join!`으로 함께 기다리도록 변경했다. OS 신호 종류를 고르는 `select!`는 `shutdown_signal()` 내부에만 남긴다.
+- `cargo fmt --all -- --check`, `cargo clippy -p tlab-app --all-targets --locked -- -D warnings`, `cargo test -p tlab-app --locked`(2개), `cargo build -p tlab-app --locked` 통과.
+- 실제 바이너리의 HTTP·HTTPS 동시 실행에서 양쪽 `/health`의 200·`ok`를 확인하고 SIGTERM 후 종료 코드 0과 두 리스너 해제를 확인했다. HTTPS 인증서·호스트 검증을 유지했다.
+- HTTP 단독 실행에서도 `/health` 응답 후 SIGINT(Ctrl+C 신호)를 전달하여 종료 코드 0과 리스너 해제를 확인했다.
+- HTTPS 포트를 다른 소켓으로 점유하면 OS 신호를 기다리지 않고 바인딩 오류와 종료 코드 1을 반환하며, 시작한 HTTP 리스너도 해제됨을 확인했다. 검증에 사용한 프로세스·임시 설정·로그·개발용 인증서는 모두 정리했다. 실제 소켓 검증은 승인된 환경에서 수행했다. (확인)
+
+## new/run 적용 후 실제 앱 확인
+
+- `tlab-app/src/main.rs`는 모든 활성 서버의 `Server::new()`로 TLS를 준비한 뒤 같은 Router를 각 `run(router, shutdown)`에 전달한다. 기존 `bind/serve` 호출은 없다. (확인)
+- `cargo build -p tlab-app --locked` 통과 후 실제 바이너리를 임시 설정·작업 디렉터리에서 실행했다. HTTP·HTTPS는 각각 포트 0을 사용하고 로그에서 실제 할당 주소를 읽었다. 개발용 인증서 생성과 공통 정적 파일을 함께 활성화했다.
+- Python 표준 라이브러리의 HTTP 클라이언트로 양쪽 전송에서 GET `/health` → 200·`ok`, HEAD → 200·빈 본문, POST → 405, `/heath` → 404, `/static/hello.txt` → 200·`static-ok`를 확인했다. HTTPS는 생성된 인증서를 신뢰 저장소에 등록했으며 인증서·호스트 검증을 유지했다.
+- 시작한 프로세스에만 SIGTERM을 전달하여 종료 코드 0과 두 리스너의 연결 거부를 확인했다. 임시 설정·인증서·로그·정적 파일은 임시 디렉터리 종료 시 정리했다. 로컬 소켓 실행은 승인된 환경에서 수행했다. (확인)
+
+아래는 API 정리 이전 실행 기록이다.
+
 ## 범위와 방법
 
 실제 `tlab-app`을 기동하고 `just app-health`와 직접 curl 요청으로 관찰한다.
