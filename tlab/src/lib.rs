@@ -1,6 +1,7 @@
 pub mod config;
 pub mod error;
 pub mod sqlxdb;
+pub mod tracing;
 
 pub use error::{Error, Result};
 
