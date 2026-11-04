@@ -1,0 +1,19 @@
+WHENEVER OSERROR EXIT FAILURE ROLLBACK
+WHENEVER SQLERROR EXIT FAILURE ROLLBACK
+SET SERVEROUTPUT ON
+
+CREATE PRIVATE TEMPORARY TABLE ora$ptt_tlab_verification (value NUMBER)
+    ON COMMIT DROP DEFINITION;
+INSERT INTO ora$ptt_tlab_verification VALUES (42);
+DECLARE
+    actual NUMBER;
+BEGIN
+    SELECT value INTO actual FROM ora$ptt_tlab_verification;
+    IF actual IS NULL OR actual <> 42 THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Oracle read/write check failed');
+    END IF;
+END;
+/
+ROLLBACK;
+PROMPT Oracle read/write OK
+EXIT SUCCESS

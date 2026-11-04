@@ -33,3 +33,6 @@
 검증 작업
 
 작업에서 재사용하는 기능 정의와 도구
+
+- [공용 검증 도구](verification/tools/README.md)
+- [로컬 DB 환경 Feature map](verification/feature/database-environment.md)

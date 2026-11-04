@@ -1,0 +1,3 @@
+# Windows 체크아웃에서도 컨테이너에 마운트하는 스크립트의 줄바꿈 유지
+docs/verification/tools/database/*.sh text eol=lf
+docs/verification/tools/database/*.sql text eol=lf
