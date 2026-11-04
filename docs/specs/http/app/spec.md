@@ -19,7 +19,7 @@ status: draft
 | 항목 | 이번 선택과 이유 |
 | --- | --- |
 | 상태 확인 | `GET /health` → 200, `text/plain; charset=utf-8`, 본문 `ok`. 외부 DB·서비스를 검사하지 않는 생존 확인 |
-| 기본 실행 | `127.0.0.1:8080`의 HTTP만 활성화. HTTPS·정적 파일은 명시적으로 설정할 때 연결 |
+| 기본 실행 | HTTP `127.0.0.1:8080`과 HTTPS `127.0.0.1:8081`을 함께 실행. 개발용 TLS 파일이 없으면 생성. 정적 파일은 설정할 때 연결 |
 | 설정 | 앱의 `server.http`, `server.https`에 각각 `http::Config`, 공통 `server.static_files`에 `StaticFilesConfig` 포함 |
 | 그룹 준비 | 활성 인스턴스의 TLS를 모두 준비한 다음 실행. 리스너 바인딩은 각 run에서 진행 |
 | 그룹 실행 | 같은 Router를 전달하고 `try_join!` 사용. 한 실행의 실패는 다른 실행 future를 drop하고 앱 오류로 전달 |
@@ -33,7 +33,7 @@ status: draft
 <a id="req-http-app-001"></a>
 ### REQ-HTTP-APP-001: 앱의 서버 조립
 
-- 앱이 HTTP 단독·HTTPS 단독·동시 설정을 표현할 수 있다. HTTP 블록에 TLS가 있거나 HTTPS 블록에 TLS가 없거나 두 블록이 모두 없으면 실행을 거부한다.
+- 현재 빌드에서 `server.http`와 `server.https`는 모두 필수다. 블록 누락은 설정 역직렬화에서 거부한다. HTTP 블록에 TLS가 있거나 HTTPS 블록에 TLS가 없으면 서버 생성 전에 실행을 거부한다.
 - 기본 설정으로 실제 앱이 요청을 받으며, HTTPS와 정적 파일을 설정하면 공통 Router를 사용한다.
 - 실패·종료 시 이번 앱이 소유한 리스너를 정리한다. 미완료 TLS 핸드셰이크의 즉시 취소는 기존 라이브러리 계약대로 보장하지 않는다.
 - 완료 조건: 설정 검증, 기본 기동, HTTP·HTTPS 실제 응답, TLS 준비 실패 시 미기동, 실행 실패 시 다른 리스너 해제, 종료 후 리스너 부재 확인.
@@ -55,7 +55,8 @@ status: draft
 
 ## 구성
 
-`main.rs`의 앱 설정 → 선택 검증 → tracing 초기화 → `/health`·정적 Router 조립 → 각 `Server::new` → `run(router)`·종료 순서다.
+`main.rs`의 설정 로딩 → tracing 초기화 → `app::Container::new`의 프로토콜 검증·두 `Server::new` → `/health`·정적 Router 조립 → `run(router)`·종료 순서다.
+`app.rs`는 설정 타입과 Container를 제공한다. Container는 설정을 소유하고 서버를 생성하며, main은 Container의 설정을 참조해 Router를 조립하고 실행·종료를 관리한다. 설정 전체를 복제하지 않고 Container로 이동한다. (확인)
 `main()`은 두 서버의 run과 OS 신호 대기를 try_join으로 함께 기다린다. 신호를 받으면 각 Server의 graceful_shutdown()을 호출하고 run 완료까지 기다린다. watch 채널이나 run의 shutdown 인자는 사용하지 않는다. 실행·신호 오류 시 나머지 future를 취소한다. OS 신호 종류의 선택만 shutdown_signal() 내부에서 처리한다. (확인)
 
 기존 `TLAB_CONFIG_FILE`과 `TLAB_APP_` 환경변수 규칙을 유지한다. 상대 경로는 실행 작업 디렉터리 기준이다.
@@ -85,3 +86,9 @@ status: draft
 ### 명시적 종료 요청
 
 - 사용자 후속 의견에 따라 종료 요청을 상위에 드러냈다. main이 각 서버의 graceful_shutdown()을 직접 호출하며 run에는 Router만 전달한다. watch 채널을 제거했다. (확인)
+
+### 앱 Container 정리
+
+- 사용자의 Container 구조 개선 요청과 후속 “http/https는 필수” 지시를 반영했다. 현재 두 설정·서버 필드를 필수로 유지하며, 향후 선택은 컴파일 시점에 처리할 의도다. 컴파일 조건 자체는 이번에 추가하지 않았다. (확인)
+- `app::Container`가 설정 소유·프로토콜 검증·서버 생성을 맡고, main은 Router 조립·실행·종료를 맡는다. 서버 생성 후 설정 원본을 Container에 이동해 중복 복제를 제거했다. (확인)
+- 기존 테스트를 app 모듈로 옮기고 필수 설정 누락, TLS 프로토콜 불일치, 기본 HTTP·HTTPS 설정을 확인하도록 변경했다. 검증 결과는 [검증 기록](./verification.md#앱-container-정리-검증)에 남긴다. (확인)

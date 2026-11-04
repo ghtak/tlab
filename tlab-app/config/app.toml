@@ -1,6 +1,14 @@
 [server.http]
 bind = "127.0.0.1:8080"
 
+[server.https]
+bind = "127.0.0.1:8081"
+
+[server.https.tls]
+certificate_chain = "./tls_cert.pem"
+private_key = "./tls_key.pem"
+generate_if_missing = true
+
 [tracing.console]
 filter = "info"
 ansi = true
