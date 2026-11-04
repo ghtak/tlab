@@ -2,9 +2,18 @@
 set shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
 
 db-compose := "docker compose --env-file docs/verification/tools/database/defaults.env -f docs/verification/tools/database/compose.yaml"
+curl-bin := if os() == "windows" { "curl.exe" } else { "curl" }
 
 default:
     @just --list
+
+# 앱을 빌드하고 포그라운드로 실행. 종료는 Ctrl+C
+app-run:
+    cargo run -p tlab-app --locked
+
+# 실행 중인 앱의 상태·본문 확인. HTTPS는 --cacert <파일> 지정 가능
+app-health base_url="http://127.0.0.1:8080" *curl_args:
+    {{ curl-bin }} --fail-with-body --silent --show-error --connect-timeout 2 --max-time 5 --write-out "\nHTTP %{http_code}\n" {{ curl_args }} "{{ base_url }}/health"
 
 # Docker 접근과 Compose 설정 확인
 db-doctor:

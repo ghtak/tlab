@@ -1978,7 +1978,9 @@ dependencies = [
 name = "tlab-app"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "serde",
+ "serde_json",
  "tlab",
  "tokio",
  "tracing",

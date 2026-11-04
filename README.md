@@ -6,6 +6,10 @@ SQLx 기반 풀·연결·트랜잭션은 `tlab::sqlxdb`에서 제공한다. 최�
 Tokio·PostgreSQL이며 쿼리는 SQLx 0.9 API를 사용한다.
 공개 계약과 검증 결과는 [DB 설계](docs/specs/database/plan.md)를 참조한다.
 
+`tlab-app`은 기본적으로 `127.0.0.1:8080`에서 HTTP를 실행한다. 별도 터미널에서
+`just app-run` → `just app-health`로 생존 확인 응답 `ok`·`HTTP 200`을 확인하고 Ctrl+C로 종료한다.
+HTTPS·설정 변경과 검증 도구의 역할은 [HTTP 앱 도구](docs/verification/tools/http/README.md)를 참조한다.
+
 로컬 테스트용 PostgreSQL·Valkey·Oracle Free 환경은 [DB 검증 도구](docs/verification/tools/database/README.md)를 참조한다.
 Docker·Compose·just를 준비한 뒤 프로젝트 루트에서 실행한다.
 

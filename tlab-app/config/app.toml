@@ -1,3 +1,6 @@
+[server.http]
+bind = "127.0.0.1:8080"
+
 [tracing.console]
 filter = "info"
 ansi = true

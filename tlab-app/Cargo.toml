@@ -4,7 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "http2", "tokio"] }
 serde = { version = "1", features = ["derive"] }
 tlab = { path = "../tlab" }
 tokio = { version = "1.54.1", features = ["full"] }
 tracing = "0.1"
+
+[dev-dependencies]
+serde_json = "1"
