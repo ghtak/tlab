@@ -1,5 +1,7 @@
+use std::sync::Arc;
+
 use serde::Deserialize;
-use tlab::{Error, http};
+use tlab::{Error, http, password};
 
 /// The app owns the set of instances and the shared static file configuration.
 #[derive(Debug, Deserialize, Clone)]
@@ -31,25 +33,29 @@ impl ServerConfig {
 pub struct Config {
     pub tracing: tlab::tracing::Config,
     pub server: ServerConfig,
+    pub passwd_hasher: password::argon2id::Config,
 }
 
 /// Owns application settings and prepares servers; main owns execution.
 pub struct Container {
     pub config: Config,
-    pub http: http::Server,
-    pub https: http::Server,
+    pub http: Arc<http::Server>,
+    pub https: Arc<http::Server>,
+    pub passwd_hasher: Arc<dyn password::PasswordHasher>,
 }
 
 impl Container {
     pub async fn new(config: Config) -> tlab::Result<Self> {
         config.server.validate()?;
         // Prepare both instances before main opens any listeners.
-        let http = http::Server::new(&config.server.http).await?;
-        let https = http::Server::new(&config.server.https).await?;
+        let http = Arc::new(http::Server::new(&config.server.http).await?);
+        let https = Arc::new(http::Server::new(&config.server.https).await?);
+        let passwd_hasher = Arc::new(password::argon2id::Hasher::new(&config.passwd_hasher)?);
         Ok(Self {
             config,
             http,
             https,
+            passwd_hasher,
         })
     }
 }
@@ -75,7 +81,7 @@ mod tests {
             }),
         ] {
             let config: Config = serde_json::from_value(serde_json::json!({
-                "tracing": {}, "server": server
+                "tracing": {}, "server": server, "passwd_hasher": {}
             }))
             .unwrap();
             assert!(matches!(
@@ -108,5 +114,6 @@ mod tests {
         assert_eq!(https.bind, "127.0.0.1:8081".parse().unwrap());
         assert!(https.tls.is_some());
         assert!(config.server.static_files.is_none());
+        password::argon2id::Hasher::new(&config.passwd_hasher).unwrap();
     }
 }

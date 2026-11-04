@@ -9,6 +9,11 @@ certificate_chain = "./tls_cert.pem"
 private_key = "./tls_key.pem"
 generate_if_missing = true
 
+[passwd_hasher]
+memory_kib = 19456
+iterations = 2
+parallelism = 1
+
 [tracing.console]
 filter = "info"
 ansi = true
