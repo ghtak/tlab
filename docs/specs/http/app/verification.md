@@ -38,11 +38,11 @@ status: draft
 
 ## 범위와 방법
 
-실제 `tlab-app`을 기동하고 `just app-health`와 직접 curl 요청으로 관찰한다.
+실제 `tlab-app`을 기동하고 `just http-health`와 직접 curl 요청으로 관찰한다.
 기능·기대 결과는 [Feature map](../../../verification/feature/http-health.md), 도구·실행·격리는 [HTTP 도구](../../../verification/tools/http/README.md)를 따른다.
 단순 요청으로 검증 가능하여 Python `requests` 패키지·시나리오는 추가하지 않았다. (확인)
 
-기본 실행은 `just app-run`으로 시작하고 다른 터미널에서 `just app-health`를 호출한다.
+기본 실행은 `just app-run`으로 시작하고 다른 터미널에서 `just http-health`를 호출한다.
 실제 상태·본문·헤더는 직접 curl로 확인하며 종료는 시작한 앱에만 전달한다.
 HTTPS·정적 파일·실패 검증에는 `/tmp/tlab-app-http-j355gh4l`의 별도 설정·로그·인증서와 18080·18443·18082 포트를 사용했다. (확인)
 

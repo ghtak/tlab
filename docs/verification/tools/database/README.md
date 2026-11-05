@@ -47,9 +47,9 @@ just db-logs oracle
 
 | 서비스 | 호스트 접속 정보 | 계정 | 내부 클라이언트 |
 | --- | --- | --- | --- |
-| PostgreSQL 18.6 | `127.0.0.1:5432`, DB `tlab` | `tlab` / `tlab_dev` | `just db-psql` |
-| Valkey 8.1.11 | `127.0.0.1:6379`, DB `0` | 인증 없음 | `just db-valkey` |
-| Oracle Free 23.26.3 | `127.0.0.1:1521/FREEPDB1` | `tlab` / `tlab_dev` | `just db-sqlplus` |
+| PostgreSQL 18.6 | `127.0.0.1:5432`, DB `tlab` | `tlab` / `tlab_dev` | `just db-client-postgres` |
+| Valkey 8.1.11 | `127.0.0.1:6379`, DB `0` | 인증 없음 | `just db-client-valkey` |
+| Oracle Free 23.26.3 | `127.0.0.1:1521/FREEPDB1` | `tlab` / `tlab_dev` | `just db-client-oracle` |
 
 호스트 앱에서 사용할 PostgreSQL URL은 `postgres://tlab:tlab_dev@127.0.0.1:5432/tlab`, Valkey URL은 `redis://127.0.0.1:6379/0`이다.
 Oracle 관리자 계정은 `system` / `tlab_admin_dev`이며, 개발·검증에는 `tlab` 계정을 사용한다. (확인)

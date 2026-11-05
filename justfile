@@ -1,61 +1,10 @@
+import 'just/db.just'
+import 'just/app.just'
+import 'just/http.just'
+
 [windows]
 set shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
 
-db-compose := "docker compose --env-file docs/verification/tools/database/defaults.env -f docs/verification/tools/database/compose.yaml"
-curl-bin := if os() == "windows" { "curl.exe" } else { "curl" }
-
+# 사용 가능한 명령 목록 표시
 default:
     @just --list
-
-# 앱을 빌드하고 포그라운드로 실행. 종료는 Ctrl+C
-app-run:
-    cargo run -p tlab-app --locked
-
-# 실행 중인 앱의 상태·본문 확인. HTTPS는 --cacert <파일> 지정 가능
-app-health base_url="http://127.0.0.1:8080" *curl_args:
-    {{ curl-bin }} --fail-with-body --silent --show-error --connect-timeout 2 --max-time 5 --write-out "\nHTTP %{http_code}\n" {{ curl_args }} "{{ base_url }}/health"
-
-# Docker 접근과 Compose 설정 확인
-db-doctor:
-    docker version
-    {{ db-compose }} config --quiet
-
-# 전체 또는 지정한 DB 시작: just db-up postgres valkey
-db-up *services:
-    {{ db-compose }} up --wait --wait-timeout 600 {{ services }}
-
-db-status:
-    {{ db-compose }} ps -a
-
-db-logs *services:
-    {{ db-compose }} logs --tail 100 {{ services }}
-
-# 세 DB의 테스트 계정 접속 및 쓰기·조회 확인
-db-check: db-check-postgres db-check-valkey db-check-oracle
-
-db-check-postgres:
-    {{ db-compose }} exec -T -e PGPASSWORD=tlab_dev postgres psql -X -h 127.0.0.1 -U tlab -d tlab -v ON_ERROR_STOP=1 -f /verification/check.sql
-
-db-check-valkey:
-    {{ db-compose }} exec -T valkey sh /verification/check.sh
-
-db-check-oracle:
-    {{ db-compose }} exec -T oracle sqlplus -L -s tlab/tlab_dev@//localhost:1521/FREEPDB1 @/verification/check.sql
-
-db-psql:
-    {{ db-compose }} exec -e PGPASSWORD=tlab_dev postgres psql -X -h 127.0.0.1 -U tlab -d tlab
-
-db-valkey:
-    {{ db-compose }} exec valkey valkey-cli
-
-db-sqlplus:
-    {{ db-compose }} exec oracle sqlplus -L tlab/tlab_dev@//localhost:1521/FREEPDB1
-
-# 컨테이너 제거, 데이터 유지
-db-down:
-    {{ db-compose }} down
-
-# 로컬 DB 데이터 삭제. 재생성은 db-up
-[confirm("tlab-db의 전체 DB 데이터를 삭제합니다. 계속할까요?")]
-db-reset:
-    {{ db-compose }} down --volumes

@@ -19,7 +19,7 @@ just app-run
 다른 터미널에서 요청한다.
 
 ```sh
-just app-health
+just http-health
 ```
 
 정상 응답은 본문 `ok` 다음 줄에 `HTTP 200`으로 표시된다. 프로세스 생존이나 기동 로그만으로 준비 완료라고 판단하지 않고 이 응답을 확인한다.
@@ -57,7 +57,7 @@ just app-run
 다른 터미널에서:
 
 ```sh
-just app-health http://127.0.0.1:18080
+just http-health http://127.0.0.1:18080
 ```
 
 동시 검증은 별도 설정 파일·포트·로그 디렉터리를 사용한다. 상대 파일 경로는 프로세스의 작업 디렉터리 기준이다.
@@ -69,7 +69,7 @@ just app-health http://127.0.0.1:18080
 앱은 활성 인스턴스에 같은 Router를 전달한다. 서버 인증서에 맞는 호스트 이름과 신뢰 자료로 요청한다.
 
 ```sh
-just app-health https://localhost:18443 --cacert /path/to/trusted-ca.pem
+just http-health https://localhost:18443 --cacert /path/to/trusted-ca.pem
 ```
 
 `--insecure`로 인증서 검증을 생략한 결과를 HTTPS 신뢰 검증으로 기록하지 않는다.

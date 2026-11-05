@@ -48,7 +48,7 @@ status: draft
 <a id="req-http-app-003"></a>
 ### REQ-HTTP-APP-003: 검증 진입점
 
-- `just app-run`은 포그라운드 실행, `just app-health [base_url] [curl 옵션...]`은 실제 앱에 유한 시간 내 요청한다.
+- `just app-run`은 포그라운드 실행, `just http-health [base_url] [curl 옵션...]`은 실제 앱에 유한 시간 내 요청한다.
 - 응답 본문과 HTTP 상태를 보여 주고 연결 실패·HTTP 4xx/5xx는 명령 실패로 전달한다. 정확한 200·`ok` 여부는 관찰 결과와 비교한다.
 - Windows는 PowerShell의 curl 별칭을 피하도록 `curl.exe`를 사용한다. HTTPS 검증은 `--cacert`로 신뢰를 지정한다.
 - 검증 도구·사용법, 도구와 독립적인 기능 기대 결과, 작업별 실제 실행 기록을 분리한다.
