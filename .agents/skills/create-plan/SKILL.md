@@ -13,7 +13,7 @@ description: 요구사항이나 대화·작업 맥락을 바탕으로 아키텍�
 경로는 이 `SKILL.md`가 있는 디렉터리를 기준으로 해석한다.
 
 - 시작할 때 [설계 문서 작성 가이드](../../../docs/agent/create-plan/index.md)를 읽고 적용한다.
-- 설계 시 [구현 가이드](../../../docs/architecture/guide-impl.md)와 [단위 테스트 가이드](../../../docs/architecture/guide-uint-test.md)를 읽고 구현 방향과 검증할 계약·기대 결과에 반영한다.
+- 설계 시 [구현 가이드](../../../docs/architecture/guide-impl.md)와 [테스트·검증 가이드](../../../docs/architecture/guide-test.md)를 읽고 구현 방향과 검증할 계약·기대 결과에 반영한다.
 - 작업 문서를 작성·갱신할 때 [문서 관리 규칙](../../../docs/agent/document-management/index.md)의 저장 위치·식별자·상태·연결 규칙을 적용한다.
 - `docs/notes`는 사용자가 명시적으로 참조를 요청한 문서만 읽는다. 읽은 노트를 확정 요구사항으로 간주하지 않는다.
 

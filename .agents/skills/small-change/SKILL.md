@@ -14,7 +14,7 @@ description: 목적과 기대 동작이 명확하고 기존 구조 안에서 처
 경로는 이 `SKILL.md`가 있는 디렉터리를 기준으로 해석한다.
 
 - 시작할 때 [작은 변경 처리 가이드](../../../docs/agent/small-change/index.md)를 읽고 적용 판단·수행 흐름·전환 기준을 적용한다.
-- 구현할 때 [구현 가이드](../../../docs/architecture/guide-impl.md)와 [단위 테스트 가이드](../../../docs/architecture/guide-uint-test.md)를 읽고 적용한다.
+- 구현할 때 [구현 가이드](../../../docs/architecture/guide-impl.md)와 [테스트·검증 가이드](../../../docs/architecture/guide-test.md)를 읽고 적용한다.
 - 작업 문서를 작성·갱신할 때 [문서 관리 규칙](../../../docs/agent/document-management/index.md)을 적용한다. 기존 문서를 재사용하고, 없으면 단일 통합 명세로 시작하여 단계별로 보완한다.
 - `docs/notes`는 사용자가 명시적으로 참조를 요청한 문서만 읽는다. 읽은 노트를 확정 요구사항으로 간주하지 않는다.
 

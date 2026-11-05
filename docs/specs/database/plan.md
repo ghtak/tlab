@@ -17,7 +17,7 @@ status: accepted
 - 현재 `tlab`은 설정·공통 에러만 제공한다. SQLx 모듈·의존성·호출자는 없다. 기존 `config::load`, `Error`, `Result`를 재사용한다. (확인)
 - 요구사항 승인 근거는 SQLx·PostgreSQL 제안에 대한 사용자 “설계 진행해” 요청이다. 사용자가 알린 가동 환경을 조회하여 PostgreSQL 18.6의 healthy 상태와 공개 포트 `127.0.0.1:5432`를 확인했다. (확인)
 - 설계 제안 후 사용자가 “구현및 코드리뷰까지 진행해”라고 요청하여 본 설계와 구현·검증·리뷰를 함께 승인했다. Oracle·Valkey·ORM·마이그레이션·자동 재시도는 이번 범위에 포함하지 않는다. (확인)
-- [구현 가이드](../../architecture/guide-impl.md)·[단위 테스트 가이드](../../architecture/guide-uint-test.md)를 적용한다. 백서의 얇은 문맥을 유지하고 수명·savepoint·풀 관리를 SQLx에 위임한다. (추론)
+- [구현 가이드](../../architecture/guide-impl.md)·[테스트·검증 가이드](../../architecture/guide-test.md)를 적용한다. 백서의 얇은 문맥을 유지하고 수명·savepoint·풀 관리를 SQLx에 위임한다. (추론)
 
 ## 구성과 책임
 

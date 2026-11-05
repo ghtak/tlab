@@ -15,7 +15,7 @@ status: accepted
 
 - [워크스페이스](../../../Cargo.toml)는 `tlab` 크레이트 하나로 구성된다. [크레이트 설정](../../../tlab/Cargo.toml)은 edition 2024이며 의존성은 비어 있다. (확인)
 - [lib.rs](../../../tlab/src/lib.rs)에는 예제 `add`와 해당 테스트만 있다. 공통 에러·기존 변환·DB 모듈은 없다. (확인)
-- [아키텍처](../../architecture/index.md)의 코어 라이브러리 방향을 따르고, [구현 가이드](../../architecture/guide-impl.md)와 [단위 테스트 가이드](../../architecture/guide-uint-test.md)에 따라 필요한 공개 계약만 추가하고 기존 동작은 유지한다. (추론)
+- [아키텍처](../../architecture/index.md)의 코어 라이브러리 방향을 따르고, [구현 가이드](../../architecture/guide-impl.md)와 [테스트·검증 가이드](../../architecture/guide-test.md)에 따라 필요한 공개 계약만 추가하고 기존 동작은 유지한다. (추론)
 
 ## 목표·설계 범위·제약
 
