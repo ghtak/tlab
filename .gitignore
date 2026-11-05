@@ -31,3 +31,10 @@ rustc-ice-*.txt
 /tlab-app/logs/
 
 *.pem
+
+# Frontend build artifacts
+/tlab-app-ui/node_modules/
+/tlab-app-ui/dist/
+/tlab-app-ui/*.tsbuildinfo
+
+**/node_modules

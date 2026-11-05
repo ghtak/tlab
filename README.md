@@ -2,6 +2,23 @@
 
 공통 기반 기능을 제공하는 Rust 라이브러리.
 
+`tlab-app-ui`는 React 기반 프런트엔드다. Node.js 22.12 이상과 npm을 준비한 뒤 프로젝트 루트에서 최초 한 번 의존성을 설치한다.
+
+```sh
+npm --prefix tlab-app-ui ci
+```
+
+이후 프로젝트 루트에서 개발 서버를 실행하고, 표시된 주소로 접속한다. 종료하려면 Ctrl+C를 누른다.
+
+```sh
+just app-run-ui
+```
+
+프로덕션 빌드는 `npm --prefix tlab-app-ui run build`, 빌드 결과 확인은 `npm --prefix tlab-app-ui run preview`를 사용한다.
+TanStack Router의 파일 기반 라우트는 `src/routes`에 추가하며, shadcn 컴포넌트는
+`components.json` 설정을 사용한다. UI와 Rust 서버는 현재 별도로 실행된다.
+상세 구성과 개발 방법은 [UI README](tlab-app-ui/README.md)를 참조한다.
+
 개발 명령은 루트 `justfile`에서 제공하며, 정의는 `just/db.just`,
 `just/app.just`, `just/http.just`에 나누어 관리한다. `just --list`로 명령을 확인할 수 있다.
 

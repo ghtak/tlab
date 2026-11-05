@@ -2,7 +2,7 @@
 
 ## 프로젝트 역할과 범위
 
-워크스페이스는 공통 라이브러리 [`tlab`](../../tlab/Cargo.toml)과 실행 애플리케이션 [`tlab-app`](../../tlab-app/Cargo.toml)으로 구성된다. (확인)
+워크스페이스는 공통 라이브러리 [`tlab`](../../tlab/Cargo.toml), 실행 애플리케이션 [`tlab-app`](../../tlab-app/Cargo.toml), React 프런트엔드 [`tlab-app-ui`](../../tlab-app-ui/package.json)로 구성된다. UI는 Vite로 개발·빌드하며 현재 서버와 별도로 실행된다. (확인)
 
 - `tlab`은 에러 처리, 설정 로딩, DB, tracing, 키파일 관리 등 재사용 가능한 기반 기능을 제공한다.
 - `tlab-app`은 `tlab`의 기능을 조합하고 실행 환경을 구성한다.
