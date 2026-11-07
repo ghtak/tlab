@@ -89,6 +89,7 @@ async fn with_logs<T>(future: impl Future<Output = T>) -> (T, String) {
     let buffer = LogBuffer::default();
     let writer = buffer.clone();
     let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
         .without_time()
         .with_ansi(false)
         .with_writer(move || writer.clone())
@@ -99,11 +100,11 @@ async fn with_logs<T>(future: impl Future<Output = T>) -> (T, String) {
 }
 
 #[tokio::test]
-async fn internal_error_logs_metadata_without_secret_messages() {
+async fn internal_error_logs_cause_without_exposing_it_in_the_response() {
     let (response, logs) = with_logs(async {
         Error::Internal(InternalFailure {
             stage: "password_hash",
-            cause: Box::new(std::io::Error::other("secret-password-and-PHC")),
+            cause: Box::new(std::io::Error::other("synthetic hash failure")),
         })
         .into_response()
     })
@@ -111,10 +112,97 @@ async fn internal_error_logs_metadata_without_secret_messages() {
     let (status, body) = response_json(response).await;
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
     assert_eq!(body["code"], "INTERNAL_ERROR");
-    assert!(logs.contains("error_kind=\"io\""));
+    assert!(logs.contains("operation=\"create_local_user\""));
     assert!(logs.contains("stage=\"password_hash\""));
-    assert!(!logs.contains("secret-password-and-PHC"));
-    assert!(!body.to_string().contains("secret-password-and-PHC"));
+    assert!(logs.contains("cause="));
+    assert!(logs.contains("synthetic hash failure"));
+    assert!(!body.to_string().contains("synthetic hash failure"));
+
+    let (response, logs) =
+        with_logs(async { app::response::internal_error("user creation failed") }).await;
+    let (status, body) = response_json(response).await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(
+        body,
+        json!({"code": "INTERNAL_ERROR", "message": "user creation failed"})
+    );
+    assert!(
+        logs.is_empty(),
+        "response construction must not emit logs: {logs}"
+    );
+}
+
+#[tokio::test]
+async fn route_error_logs_are_explicit_and_linked_to_the_request_span() {
+    for (status, code) in [
+        (400, "INVALID_EMAIL"),
+        (409, "EMAIL_ALREADY_EXISTS"),
+        (503, "BUSY"),
+        (500, "INTERNAL_ERROR"),
+    ] {
+        let (response, logs) = with_logs(async {
+            let router = crate::http::trace_requests(axum::Router::new().route(
+                "/errors",
+                axum::routing::post(move || async move {
+                    match status {
+                        400 => Error::InvalidInput {
+                            field: "email",
+                            code: "INVALID_EMAIL",
+                            message: "email must be a single email address",
+                        },
+                        409 => Error::EmailAlreadyExists,
+                        503 => Error::Busy,
+                        _ => Error::Internal(InternalFailure {
+                            stage: "password_hash",
+                            cause: Box::new(std::io::Error::other("synthetic hash failure")),
+                        }),
+                    }
+                    .into_response()
+                }),
+            ));
+            router
+                .oneshot(
+                    Request::post("/errors")
+                        .header(
+                            "traceparent",
+                            "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+                        )
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+        })
+        .await;
+        let (actual_status, body) = response_json(response).await;
+        assert_eq!(actual_status.as_u16(), status);
+        assert_eq!(body["code"], code);
+        assert_eq!(
+            logs.lines().filter(|line| line.contains("ERROR")).count(),
+            usize::from(status == 500),
+            "{logs}"
+        );
+        assert_eq!(
+            logs.lines().filter(|line| line.contains("WARN")).count(),
+            usize::from(status == 503),
+            "{logs}"
+        );
+        assert!(logs.contains("started processing request"), "{logs}");
+        assert!(logs.contains(&format!("status={status}")), "{logs}");
+        for line in logs.lines() {
+            assert!(
+                line.contains("trace_id=0af7651916cd43dd8448eb211c80319c"),
+                "{line}"
+            );
+        }
+        if status == 500 {
+            assert!(logs.contains("stage=\"password_hash\""), "{logs}");
+            assert!(logs.contains("operation=\"create_local_user\""), "{logs}");
+            assert!(logs.contains("cause="), "{logs}");
+            assert!(logs.contains("synthetic hash failure"), "{logs}");
+        }
+        assert!(!body.to_string().contains("synthetic hash failure"));
+    }
 }
 
 async fn container(url: String) -> Container {
@@ -371,9 +459,10 @@ async fn check_local_user_contracts(test_url: String) {
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
     assert_eq!(body["code"], "INTERNAL_ERROR");
     assert!(logs.contains("stage=\"insert_identity\""));
-    assert!(logs.contains("error_kind=\"database\""));
-    assert!(logs.contains("sqlstate=\"23505\""));
-    assert!(!logs.contains("failure@example.com"));
+    assert!(logs.contains("operation=\"create_local_user\""));
+    assert!(logs.contains("cause="));
+    assert!(logs.contains("23505"));
+    assert!(!body.to_string().contains("failure@example.com"));
     assert!(!logs.contains("password with spaces"));
     assert!(!logs.contains("$argon2id$"));
     let mut conn = container.database.conn().await.unwrap();

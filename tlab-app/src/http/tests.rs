@@ -32,7 +32,7 @@ impl io::Write for Logs {
 }
 
 #[tokio::test]
-async fn request_response_and_failure_logs_share_request_context_at_info() {
+async fn request_response_logs_share_request_context_at_info() {
     let logs = Logs::default();
     let writer = logs.clone();
     let subscriber = tracing_subscriber::registry()
@@ -136,7 +136,7 @@ async fn request_response_and_failure_logs_share_request_context_at_info() {
                 ids.push(id.trim_end_matches('}'));
             }
             assert!(ids.windows(2).all(|pair| pair[0] == pair[1]), "{output}");
-            assert_eq!(output.contains("ERROR"), status == 500, "{output}");
+            assert!(!output.contains("ERROR"), "{output}");
             if status == 200 {
                 assert!(output.contains("handler-event"), "{output}");
             }

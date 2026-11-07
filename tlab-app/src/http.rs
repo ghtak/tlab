@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{Router, extract::State, http::StatusCode, response::Response, routing::get};
 use tlab::Error;
-use tower_http::trace::{DefaultOnFailure, DefaultOnRequest, DefaultOnResponse, TraceLayer};
+use tower_http::trace::{DefaultOnRequest, DefaultOnResponse, TraceLayer};
 use tracing::Level;
 
 use crate::app::{Container, response};
@@ -37,13 +37,14 @@ pub async fn run(container: Container) -> tlab::Result<()> {
     Ok(())
 }
 
-fn trace_requests<S: Clone + Send + Sync + 'static>(router: Router<S>) -> Router<S> {
+pub(crate) fn trace_requests<S: Clone + Send + Sync + 'static>(router: Router<S>) -> Router<S> {
     router.layer(
         TraceLayer::new_for_http()
             .make_span_with(tlab::http::trace::new_request_span)
             .on_request(DefaultOnRequest::new().level(Level::INFO))
             .on_response(DefaultOnResponse::new().level(Level::INFO))
-            .on_failure(DefaultOnFailure::new().level(Level::ERROR)),
+            // Routes own diagnostic logs; response status alone must not duplicate them.
+            .on_failure(()),
     )
 }
 

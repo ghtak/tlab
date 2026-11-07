@@ -77,7 +77,7 @@ status: draft
 ### REQ-HTTP-APP-005: 요청 로그 연결
 
 - 요청 span 이름은 `http_request`로 하고 `method`, `uri`, `trace_id`, `span_id`, `parent_span_id` 필드를 기록한다.
-- 요청 시작·응답 상태·처리 시간과 서버 오류를 요청 span 안에서 기록하며, 기본 `info` 필터에서도 요청·응답 로그를 확인할 수 있게 한다.
+- 요청 시작·응답 상태·처리 시간은 TraceLayer가, 서버 오류 진단은 해당 route가 요청 span 안에서 기록한다. 기본 `info` 필터에서도 요청·응답 로그를 확인할 수 있게 한다. 상태 코드만으로 ERROR를 추가하지 않는다.
 - 공통 기능은 `tlab::http::trace`가 제공하고, 앱이 조립한 Router에 `TraceLayer`를 적용한다. 기존 사용자 변경을 이어서 보완한다.
 - 완료 조건: HTTP·HTTPS가 공유하는 Router의 핸들러 로그와 요청·응답 로그에서 동일한 요청 ID를 확인한다. 정상 응답과 4xx·5xx를 구분해 확인한다.
 
@@ -121,17 +121,17 @@ status: draft
 
 #### 앱 연결과 로그
 
-기존 사용자의 `TraceLayer::new_for_http()`에 `.make_span_with(tlab::http::trace::new_request_span)`를 연결하고 `DefaultOnRequest`와 `DefaultOnResponse`는 INFO, `DefaultOnFailure`는 ERROR로 명시한다. 응답에는 status와 응답 헤더 생성까지의 latency가 기록된다. 스트리밍 본문 전체 전송 시간은 이번 처리 시간의 의미에 포함하지 않는다.
+기존 사용자의 `TraceLayer::new_for_http()`에 `.make_span_with(tlab::http::trace::new_request_span)`를 연결하고 `DefaultOnRequest`와 `DefaultOnResponse`는 INFO로 명시한다. 후속 오류 로깅 분리 요청에 따라 `.on_failure(())`로 자동 실패 로그를 비활성화한다. 응답에는 status와 응답 헤더 생성까지의 latency가 기록된다. 스트리밍 본문 전체 전송 시간은 이번 처리 시간의 의미에 포함하지 않는다.
 
 앱 `main`은 `initialize`의 반환 guard를 `_tracing_guard`로 보관한다. 기존 `let _ = ...`는 즉시 guard를 drop하므로, 요청 로그의 비동기 writer 수명을 유지하기 위해 보완한다. (확인)
 
-기본 HTTP classifier로 5xx는 오류 로그를 남기고, 4xx는 응답 상태로 확인한다. 기본 요청·응답 로그가 DEBUG인 점은 로컬 `tower-http` 0.7.1 소스에서 확인했으므로 INFO로 조정한다. (확인)
+4xx·5xx를 포함한 응답 상태는 INFO로 관찰하고, 오류의 의미를 아는 route가 진단 로그를 명시한다. `create_local_user`는 내부 실패를 ERROR, 예상된 용량 제한 `Busy`를 WARN으로 기록한다. status만 반환한 500에는 별도 ERROR가 없으며, TraceLayer의 service·body failure callback도 비활성 상태다. 새 실패 처리 경로 역시 해당 경계에서 필요한 로그를 책임진다. 기본 요청·응답 로그가 DEBUG인 점은 로컬 `tower-http` 0.7.1 소스에서 확인했으므로 INFO로 조정한다. (확인)
 
 #### 검증 방법
 
 - REQ-HTTP-APP-004: 공개 `new_request_span`을 통해 정상·누락·잘못된 헤더의 ID와 부모 필드, ID 형식과 요청 간 분리를 검증한다. 경계 입력은 잘못된 길이·대문자·0 ID·버전·flags·중복 헤더를 포함한다.
 - REQ-HTTP-APP-006: 전역 subscriber를 변경하지 않는 격리된 Registry로 요청 span·자식 span의 조회, 요청 밖·비활성 span·미지원 subscriber에서 `None`을 확인한다. 동시 요청의 ID가 섞이지 않는지도 확인한다.
-- REQ-HTTP-APP-005: 테스트 Router와 실제 TraceLayer를 연결하고 로그 writer를 격리해 200·404·500 응답의 상태·latency·요청 ID, INFO 필터의 요청·응답 기록과 5xx 오류 기록을 검증한다.
+- REQ-HTTP-APP-005: 테스트 Router와 실제 TraceLayer를 연결하고 로그 writer를 격리해 응답 상태·latency·요청 ID와 INFO 필터의 요청·응답 기록을 검증한다. 로컬 사용자 오류 변환을 연결한 `oneshot` 테스트로 내부 실패의 ERROR 한 건, `Busy`의 WARN 한 건, 입력 오류·중복의 진단 로그 부재를 확인한다.
 - `cargo fmt --all -- --check`, `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`를 수행한다. 테스트 실행에 필요한 환경 문제는 기능 실패와 구분해 기록한다.
 - 사용자의 후속 “검증은 oneshot 으로 가능하지 않아?” 의견을 반영해 실제 서버를 새로 실행하는 검증은 생략한다. 서버 조립 시 사용하는 동일한 `trace_requests` 함수와 `TraceLayer`를 테스트 Router에 적용해 `oneshot`으로 검증한다. 리스너·TLS 코드는 변경하지 않았으며 기존 HTTP·HTTPS 통합 테스트 결과를 재사용한다. (확인)
 
@@ -177,6 +177,12 @@ status: draft
 - 아키텍처 변경: 없음. `tlab-app → tlab` 의존 방향과 Router 조립·서버 실행 책임을 유지하면서 선택적인 HTTP 보조 API를 추가했다. 기존 소비자 전환이나 배포 순서 변경은 필요하지 않다. (추론)
 - 리스크: R1. 범위는 요청 로그와 로컬 컨텍스트이며 코드 복원으로 동작을 되돌릴 수 있다. (추론)
 - 제한: 버전 `00`만 지원하며 출력 헤더·외부 요청 전파는 제공하지 않는다. 비활성 요청 span에서는 컨텍스트 조회가 `None`이고, 새 task에는 호출자가 span을 전달해야 한다. latency는 응답 헤더 준비까지이며 스트리밍 전송 완료 시간이 아니다.
+
+### 후속 변경: 오류 로그를 route 경계로 이동
+
+- 사용자 “변경해”와 후속 원인 분류기 제거 의견을 반영했다. 위 구현·리뷰 결과의 자동 5xx ERROR는 초기 구현에 대한 이력이며, 현재 동작은 본문의 `on_failure(())`와 route의 명시적 로깅을 따른다.
+- status만 반환한 500에는 INFO 응답 로그만 남는다. 로컬 사용자 오류 변환을 연결한 `oneshot` 테스트에서는 내부 실패의 ERROR 한 건과 Busy의 WARN 한 건, 입력 오류·중복의 진단 로그 부재를 확인했다. 모든 이벤트가 요청 trace ID와 연결된다. 후속 cause 로깅 요청에 따라 내부 실패의 원인은 route의 ERROR에 기록하고 HTTP 응답에서는 숨긴다.
+- 최종 앱 테스트 12개 통과·PostgreSQL 연동 1개 ignored, fmt·clippy 통과. 작업별 승인·검증·점검은 [로컬 사용자 추가 변경 기록](../../account/create-local-user/plan.md#요청-tracing에-따른-오류-로그-책임-정리)을 참조한다. (확인)
 
 ## 구성
 

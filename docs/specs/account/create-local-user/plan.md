@@ -118,7 +118,9 @@ HTTP로 노출하고, 향후 RBAC 설계에서 제한된 사용자에게만 이 
 | 해싱 동시성 슬롯 소진 | 503, `BUSY` |
 | 해싱·DB·blocking 작업 실패 | 500, `INTERNAL_ERROR` |
 
-`app::response::success(status, data)`와 `error(status, code, field, message)`가 정상·에러 JSON을 생성하고 `invalid_json`이 원문 없는 파싱 실패를 처리한다. 업무 오류와 HTTP 상태·코드의 대응은 각 route에 둔다. 공통 응답 모듈은 auth usecase에 의존하지 않는다. `internal_error`는 원인 체인에서 오류 종류와 SQLSTATE를 추출해 작업·실패 단계와 함께 로그에 남기되, 임의 오류 문자열·SQL 상세·입력 원문은 기록하지 않는다. `/db_status`도 공통 정상 응답을 사용하며 기존 JSON 구조는 유지한다. (확인)
+`app::response::success(status, data)`와 `error(status, code, field, message)`가 정상·에러 JSON을 생성하고 `invalid_json`이 원문 없는 파싱 실패를 처리한다. `internal_error(message)`는 공통 500 응답만 생성하며 로그를 남기지 않는다. 업무 오류와 HTTP 상태·코드의 대응, 진단 로그 발생 여부는 각 route가 결정한다. 공통 응답 모듈은 auth usecase·SQLx·Tokio 오류 타입에 의존하지 않는다. `/db_status`도 공통 정상 응답을 사용하며 기존 JSON 구조는 유지한다. (확인)
+
+route의 `Internal` 분기가 작업(`operation`), 실패 단계(`stage`), 원인(`cause = ?failure.cause`)을 ERROR로 명시적으로 기록한다. 사용자 후속 의견에 따라 공통 `error_metadata` 분류기는 두지 않으며, SQLx·Tokio·앱 오류를 순회해 종류·SQLSTATE를 추출하는 처리를 제거한다. 원인은 usecase의 `InternalFailure`에 보존하고 서버 로그에 Debug 형식으로 출력하되, HTTP 응답은 일반 메시지를 유지한다. `Busy`는 `hash_capacity` 단계의 WARN 한 건으로 기록하고, 입력 오류·이메일 중복은 별도 진단 로그 없이 요청·응답 INFO로 관찰한다. 모든 로그는 현재 요청 span을 사용한다. 요청 본문·비밀번호·생성 해시를 별도로 로깅하지 않지만, cause 자체에 드라이버 진단·입력값이 들어 있다면 서버 로그에 포함될 수 있다. TraceLayer는 상태 코드만으로 별도의 실패 로그를 추가하지 않는다. (확인: 후속 변경 요청과 구현)
 
 이 매핑은 현재 HTTP 응답 계약이다. 제한된 사용자만 접근하도록 하는 인가 처리는 후속 RBAC 구현 범위다. HTTP 상태·응답 변환은 handler 책임이며 usecase는 HTTP 타입을 알지 않는다. (추론)
 
@@ -178,7 +180,7 @@ SNS와 이메일이 같아도 새 LOCAL 계정을 만들며 자동 연결하지 
 | 실제 Argon2id 연계 | 저장된 PHC가 argon2id이며 기존 해셔로 원래 비밀번호 true, 다른 비밀번호 false |
 | 비밀번호 앞뒤 공백 포함 | 원문으로만 검증 성공. trim된 값과 다른 비밀번호로 취급 |
 | 입력 오류 | 명시한 입력 정책으로 거부하고 계정·identity 미생성. NUL 닉네임은 해싱 슬롯이 소진돼도 400/INVALID_NICKNAME |
-| 내부 오류 진단 | 작업·단계·오류 종류·SQLSTATE 로그 확인. 이메일·비밀번호·PHC·원인 메시지 원문은 로그·응답에 없음 |
+| 내부 오류 진단 | 작업·단계·cause를 서버 로그에서 확인. HTTP 응답에는 내부 원인이나 DB 진단을 노출하지 않음. 요청 본문·비밀번호·PHC를 별도 필드로 로깅하지 않음 |
 | 비밀번호 정책 교체 | 같은 생성 usecase가 주입된 정책에 따라 수락·거부. 거부 시 해싱·DB 변경 없음 |
 | 같은 LOCAL 이메일의 대소문자 변형·동시 요청 | 1건만 성공, 나머지는 EmailAlreadyExists. 고아 계정 없음 |
 | SNS와 같은 이메일 | LOCAL 신규 계정 생성, 기존 계정 연결·수정 없음 |
@@ -285,3 +287,19 @@ provider·status의 String 사용은 리뷰 중 논의에 따라 Rust enum으로
 - 재리뷰 대상: 같은 HEAD 대비 전체 변경 중 수정 영향 경로를 재검토했다. 코드·앱 설정·manifest·lock 20개 파일의 SHA-256은 `b9b5ce30b3287de80616017a17d913e297792cc3498c5ae7f078417daf4f0a0a`이며 계산 방식은 앞선 리뷰와 같다. 새로운 unsafe·메모리 조작은 없어 Miri 비대상, Geiger 미실행이다. (확인)
 - 재리뷰 결과: 두 발견 사항 해결, 추가 수정이 필요한 결함을 발견하지 못했다. 초기 점수 기준으로 기능 4·구조 4·안정성 4·보안 4·성능 4·테스트 용이성 4, 현재 검토 범위에서 100/100·통과로 갱신한다. 구조·보안·성능 판단은 앞선 근거를 유지하고, 기능·안정성·테스트 용이성은 회귀 검증과 수정 경로 확인을 근거로 갱신했다. 리스크는 R2를 유지한다. (추론)
 - 복구 조건과 후속 범위는 앞선 리뷰와 같다. 신규 migration·계정 상태 변경·권한 정책 변경은 없고 앱 코드·설정 복원 조건은 유지한다. 실제 TCP/HTTPS 실호출·운영 부하·commit 중 단절·실제 rollback은 검증하지 않았다. 이번 판정은 그 범위의 보장이나 배포 승인이 아니다. (확인: 수행 범위 / 추론: 한계)
+
+### 요청 tracing에 따른 오류 로그 책임 정리
+
+- 승인 근거: 공통 응답 생성과 명시적 route 로깅의 분리안을 제시한 뒤 사용자가 “변경해”라고 지시했다. 후속 “error_metadata는 너무 많은 것을 알아야 한다”는 의견을 반영해 공통 원인 분류 도우미도 제거했다. 이 기록은 `9b8071d` 이후 해당 미커밋 변경에 대한 것이며, 앞선 리뷰의 점수·판정은 당시 대상의 이력으로 남긴다. (확인)
+- 요구사항·설계: 기존 상태 코드·JSON·민감정보 미출력 계약을 유지하며, route가 내부 실패 ERROR와 Busy WARN을 명시한다. `app::response::internal_error(message)`는 응답만 만든다. 공통 레이어의 SQLx·Tokio·앱 오류별 분류와 SQLSTATE 추출은 제거한다. 입력 오류와 중복은 별도 진단 로그 없이 요청·응답 로그로 관찰한다. (확인: 사용자 요청과 채택 범위)
+- 구현: route에서 `operation`, `stage`를 현재 요청 span에 기록한다. 원인은 `InternalFailure`가 보존하고 표준 `Error::source`로 제공하며, Display에는 실패 단계만 표시한다. TraceLayer의 자동 실패 로그를 꺼 중복 ERROR와 Busy의 자동 ERROR를 제거했다. trace ID와 상태·latency의 INFO 로그는 유지한다. (확인)
+- 회귀 검증: 먼저 추가한 `oneshot` 테스트가 기존 코드에서 Busy 503의 불필요한 ERROR 때문에 실패하는 것을 재현했다. 이후 실제 오류의 `IntoResponse` 구현과 앱의 `trace_requests`를 연결해 400·409의 진단 로그 부재, 503의 WARN 한 건, 500의 ERROR 한 건, 모든 로그의 수신 trace ID 연결, 오류 원문의 비밀 표식 미노출을 확인했다. 공통 500 응답 생성 자체는 로그를 남기지 않는 것도 확인했다. (확인)
+- 실행 결과: 변경 도중 `cargo test --workspace --locked` 통과. 공통 원인 분류 제거와 표준 source 보존의 최종 변경 후 영향받은 `cargo test -p tlab-app --locked`는 12개 통과, 기존 PostgreSQL 연동 1개 ignored. 최종 `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `git diff --check` 통과. DB 연동·새 프로세스 기동은 추가로 실행하지 않았다. (확인)
+- 자체 점검: 공통 응답 함수의 호출자와 오류 매핑, 민감정보 미출력, 실패 원인 보존, 로그 수준·중복과 요청 span 연결을 대조했다. 추가 수정이 필요한 결함을 발견하지 못했다. 이전 원인 분류와 달리 현재 로그에는 `error_kind`·`sqlstate`가 없고, `operation`·`stage`만 남는다. 이후 새 오류 진입점도 해당 경계에서 명시적 진단 로그를 책임진다. 스키마·설정·의존성 변경은 없고 코드 복원으로 이전 동작에 돌아갈 수 있다. (확인: 변경 범위 / 추론: 복구 가능성)
+
+### 후속 변경: route에서 cause 기록
+
+- 사용자 “로그에는 cause를 남기는 게 맞지 않나” 의견을 반영해 route의 ERROR 이벤트에 `cause = ?failure.cause`를 추가했다. 위 단계만 출력하는 중간 결과를 대체하며, 현재 계약은 본문의 HTTP 진입점·로그 설명을 따른다. 서버 로그의 원인 원문 미출력 정책은 이번 사용자 지시에 따라 변경되었고, HTTP 응답의 내부 원인 미노출은 유지한다. (확인)
+- 공통 오류 분류기나 별도 로깅 계층 없이 기존 `InternalFailure`를 사용한다. 중간에 추가했던 `Display`·`Error::source` 구현은 직접 cause 로깅에 필요하지 않아 제거했다. 원인과 실패 단계는 기존처럼 usecase에서 보존한다. (확인)
+- `oneshot`과 직접 응답 변환 테스트를 갱신해 cause의 진단 메시지가 trace ID가 연결된 ERROR 한 건에 남고, HTTP 응답에는 포함되지 않는 것을 확인한다. DB 연동 테스트의 기대값도 독립 SQLSTATE 필드 대신 cause에 담긴 DB 진단을 확인하도록 조정한다. 원인 메시지에 포함된 입력값이 서버 로그에도 남을 수 있으며, 요청 본문·비밀번호·해시를 별도 필드로 로깅하는 동작은 추가하지 않는다. (확인: 변경 계약)
+- 최종 검증: `cargo test -p tlab-app --locked` 12개 통과·기존 DB 연동 1개 ignored, `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `git diff --check` 통과. 실제 DB 연동 테스트는 이번 후속 변경에서 실행하지 않았다. (확인)

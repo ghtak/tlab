@@ -53,18 +53,28 @@ impl IntoResponse for create_local_user::Error {
                 Some("email"),
                 "local email already exists",
             ),
-            Error::Busy => response::error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "BUSY",
-                None,
-                "password hashing is busy",
-            ),
-            Error::Internal(failure) => response::internal_error(
-                "create_local_user",
-                failure.stage,
-                failure.cause.as_ref(),
-                "user creation failed",
-            ),
+            Error::Busy => {
+                tracing::warn!(
+                    operation = "create_local_user",
+                    stage = "hash_capacity",
+                    "password hashing is busy"
+                );
+                response::error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "BUSY",
+                    None,
+                    "password hashing is busy",
+                )
+            }
+            Error::Internal(failure) => {
+                tracing::error!(
+                    operation = "create_local_user",
+                    stage = failure.stage,
+                    cause = ?failure.cause,
+                    "user creation failed"
+                );
+                response::internal_error("user creation failed")
+            }
         }
     }
 }
