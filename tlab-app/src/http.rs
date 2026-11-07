@@ -2,8 +2,7 @@ use std::sync::Arc;
 
 use axum::{Router, extract::State, http::StatusCode, response::Response, routing::get};
 use tlab::Error;
-use tower_http::trace::{DefaultOnRequest, DefaultOnResponse, TraceLayer};
-use tracing::Level;
+use tower_http::trace::TraceLayer;
 
 use crate::app::{Container, response};
 
@@ -19,7 +18,9 @@ pub async fn run(container: Container) -> tlab::Result<()> {
     if let Some(files) = &container.config.server.static_files {
         router = router.merge(files.router()?);
     }
-    let router: Router = trace_requests(router).with_state(container.clone());
+    let router: Router = router
+        .layer(TraceLayer::new_for_http().make_span_with(tlab::http::trace::new_request_span))
+        .with_state(container.clone());
 
     tracing::info!("application starting");
     tokio::try_join!(
@@ -35,17 +36,6 @@ pub async fn run(container: Container) -> tlab::Result<()> {
         }
     )?;
     Ok(())
-}
-
-pub(crate) fn trace_requests<S: Clone + Send + Sync + 'static>(router: Router<S>) -> Router<S> {
-    router.layer(
-        TraceLayer::new_for_http()
-            .make_span_with(tlab::http::trace::new_request_span)
-            .on_request(DefaultOnRequest::new().level(Level::INFO))
-            .on_response(DefaultOnResponse::new().level(Level::INFO))
-            // Routes own diagnostic logs; response status alone must not duplicate them.
-            .on_failure(()),
-    )
 }
 
 async fn db_status(State(container): State<Arc<Container>>) -> Response {
