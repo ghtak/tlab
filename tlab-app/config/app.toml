@@ -14,6 +14,9 @@ memory_kib = 19456
 iterations = 2
 parallelism = 1
 
+[auth]
+max_concurrent_password_hashes = 2
+
 [database]
 # Set TLAB_APP_DATABASE__URL in .env or the environment.
 url = ""

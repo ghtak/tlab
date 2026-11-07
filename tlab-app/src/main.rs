@@ -1,4 +1,5 @@
 mod app;
+mod auth;
 mod http;
 mod migrations;
 mod options;

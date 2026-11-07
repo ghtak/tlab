@@ -1,6 +1,27 @@
 #![allow(dead_code)]
+use std::sync::Arc;
+
 use serde::Deserialize;
 use tlab::{Error, http, password};
+use tokio::sync::Semaphore;
+
+use crate::auth::passwd_policy::{NonEmptyPasswordPolicy, PasswordPolicy};
+
+pub mod response;
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(default, deny_unknown_fields)]
+pub struct AuthConfig {
+    pub max_concurrent_password_hashes: usize,
+}
+
+impl Default for AuthConfig {
+    fn default() -> Self {
+        Self {
+            max_concurrent_password_hashes: 2,
+        }
+    }
+}
 
 /// The app owns the set of instances and the shared static file configuration.
 #[derive(Debug, Deserialize, Clone)]
@@ -34,6 +55,8 @@ pub struct Config {
     pub server: ServerConfig,
     pub passwd_hasher: password::argon2id::Config,
     pub database: tlab::sqlxdb::Config,
+    #[serde(default)]
+    pub auth: AuthConfig,
 }
 
 pub mod db {
@@ -47,23 +70,38 @@ pub struct Container {
     pub config: Config,
     pub http: http::Server,
     pub https: http::Server,
-    pub passwd_hasher: Box<dyn password::PasswordHasher>,
+    pub passwd_hasher: Arc<dyn password::PasswordHasher>,
+    pub passwd_policy: Arc<dyn PasswordPolicy>,
+    pub passwd_hash_slots: Arc<Semaphore>,
     pub database: db::Database,
 }
 
 impl Container {
     pub async fn new(config: Config) -> tlab::Result<Self> {
         config.server.validate()?;
+        if config.auth.max_concurrent_password_hashes == 0
+            || config.auth.max_concurrent_password_hashes > Semaphore::MAX_PERMITS
+        {
+            return Err(Error::InvalidInput(
+                "auth.max_concurrent_password_hashes must be between 1 and Semaphore::MAX_PERMITS"
+                    .into(),
+            ));
+        }
         // Prepare both instances before main opens any listeners.
         let http = http::Server::new(&config.server.http).await?;
         let https = http::Server::new(&config.server.https).await?;
-        let passwd_hasher = Box::new(password::argon2id::Hasher::new(&config.passwd_hasher)?);
+        let passwd_hasher = Arc::new(password::argon2id::Hasher::new(&config.passwd_hasher)?);
+        let passwd_policy = Arc::new(NonEmptyPasswordPolicy);
+        let passwd_hash_slots =
+            Arc::new(Semaphore::new(config.auth.max_concurrent_password_hashes));
         let database = db::Database::new(&config.database).await?;
         Ok(Self {
             config,
             http,
             https,
             passwd_hasher,
+            passwd_policy,
+            passwd_hash_slots,
             database,
         })
     }
@@ -125,5 +163,20 @@ mod tests {
         assert!(https.tls.is_some());
         assert!(config.server.static_files.is_none());
         password::argon2id::Hasher::new(&config.passwd_hasher).unwrap();
+        assert_eq!(config.auth.max_concurrent_password_hashes, 2);
+    }
+
+    #[tokio::test]
+    async fn invalid_hash_concurrency_is_rejected_before_resources_are_prepared() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("config/app.toml");
+        let config: Config = tlab::config::load(path, "TLAB_APP_AUTH_SETTINGS_TEST").unwrap();
+        for count in [0, Semaphore::MAX_PERMITS + 1] {
+            let mut invalid = config.clone();
+            invalid.auth.max_concurrent_password_hashes = count;
+            assert!(matches!(
+                Container::new(invalid).await,
+                Err(Error::InvalidInput(_))
+            ));
+        }
     }
 }

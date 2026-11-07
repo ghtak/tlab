@@ -22,6 +22,7 @@
 | `app::Container` | 앱 설정과 구성요소 인스턴스를 소유한다. 생성자에서 앱 수준의 설정 조합을 검증하고 구성요소를 생성한다. |
 | [`main`](../../tlab-app/src/main.rs) | 옵션과 설정을 읽고 tracing을 초기화한 뒤 마이그레이션 또는 서버 실행을 선택한다. |
 | [`http`](../../tlab-app/src/http.rs) | Router를 조립하고 두 서버의 실행·종료를 연결한다. |
+| [`app::response`](../../tlab-app/src/app/response.rs) | 정상 JSON·공통 에러 본문·JSON 입력 실패 응답을 생성한다. 기능별 HTTP 상태·코드 판단은 route에 둔다. |
 | [`tlab`](../../tlab/src/lib.rs) | 개별 구성요소의 설정·생성·실행 API를 제공한다. 앱의 Container나 구성요소 간 조합을 알지 않는다. |
 
 위 책임은 현재 코드에서 확인한 구분이다. tracing guard는 main이 보관해 실행과 종료 동안 로그 출력을 유지한다. (확인)
@@ -49,6 +50,7 @@ flowchart TD
 - [비밀번호 해싱 모듈](../../tlab/src/password.rs): Argon2id·PBKDF2 해시 생성과 PHC 검증을 제공한다. [명세](../specs/password/hash/spec.md)와 [설계](../specs/password/hash/plan.md)를 참조한다.
 - [HTTP 모듈](../../tlab/src/http.rs): 앱이 조립한 Axum Router로 단일 HTTP 또는 HTTPS 리스너를 실행하고 정적 파일 Router 생성과 TLS 재로드를 제공한다. 다중 인스턴스 조정은 앱이 맡는다. [설계](../specs/http/plan.md)와 [검증·리뷰](../specs/http/verification.md)를 참조한다.
 - [앱 구성](../../tlab-app/src/app.rs): 설정을 소유하고 HTTP·HTTPS 설정 검증과 서버 생성을 담당하는 Container를 제공한다. [앱 진입점](../../tlab-app/src/main.rs)은 설정 로딩·tracing 초기화와 실행 경로 선택을, [앱 HTTP 모듈](../../tlab-app/src/http.rs)은 Router 조립과 서버 실행·종료를 맡는다. [앱 HTTP 명세](../specs/http/app/spec.md)를 참조한다. (확인)
+- [로컬 사용자 추가](../../tlab-app/src/auth/create_local_user/usecase.rs): 시나리오 안에 HTTP 처리·usecase·테스트를 모으고, auth 공용 entity와 저장소별 CRUD API를 사용한다. Argon2id·비밀번호 정책·해싱 동시성 자원은 Container가 조립한다. [설계·검증 결과](../specs/account/create-local-user/plan.md)를 참조한다. 접근 제한은 후속 RBAC 범위다. (확인)
 
 ## 개발 가이드
 

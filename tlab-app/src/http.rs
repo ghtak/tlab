@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
-use axum::{Json, Router, extract::State, routing::get};
+use axum::{Router, extract::State, http::StatusCode, response::Response, routing::get};
 use tlab::Error;
 
-use crate::app::Container;
+use crate::app::{Container, response};
 
 pub async fn run(container: Container) -> tlab::Result<()> {
     let container = Arc::new(container);
     let mut router: Router<Arc<Container>> = Router::new()
+        .merge(crate::auth::router())
         .route("/health", get(|| async { "ok" }))
         .route("/db_status", get(db_status));
     if let Some(files) = &container.config.server.static_files {
@@ -31,8 +32,8 @@ pub async fn run(container: Container) -> tlab::Result<()> {
     Ok(())
 }
 
-async fn db_status(State(container): State<Arc<Container>>) -> Json<tlab::sqlxdb::PoolStatus> {
-    Json(container.database.pool_status())
+async fn db_status(State(container): State<Arc<Container>>) -> Response {
+    response::success(StatusCode::OK, container.database.pool_status())
 }
 
 async fn shutdown_signal() -> tlab::Result<()> {

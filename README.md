@@ -58,6 +58,14 @@ SQL과 코드 작업은 번호 순서로 매번 실행한다. 이력·롤백·�
 사용자가 작업의 반복 안전성, 실행 직렬화 및 실패 후 복구를 책임진다. 파일 규칙과
 실패 처리의 상세는 [마이그레이션 명세](docs/specs/database/migrate/spec.md)를 참조한다.
 
+계정 migration 적용 후 `POST /api/accounts/local`로 로컬 사용자를 추가할 수 있다.
+JSON 입력은 `nickname`, `email`, `password`이며 성공 시 HTTP 201과 계정 ID·REGISTERED 상태를 반환한다.
+비밀번호는 Argon2id PHC로 저장한다. 기본 비밀번호 정책은 빈 문자열 거부이며
+`auth::passwd_policy::PasswordPolicy` 구현체로 교체할 수 있다.
+`[auth] max_concurrent_password_hashes`의 기본값은 2이며, 슬롯이 가득 차면 HTTP 503을 반환한다.
+현재 인증·인가 검사는 없고 접근 제한은 후속 RBAC에서 구현한다.
+VSA 배치·entity 기반 저장소 API·오류 계약은 [로컬 사용자 추가 설계](docs/specs/account/create-local-user/plan.md)를 참조한다.
+
 로컬 테스트용 PostgreSQL·Valkey·Oracle Free 환경은 [DB 검증 도구](docs/verification/tools/database/README.md)를 참조한다.
 Docker·Compose·just를 준비한 뒤 프로젝트 루트에서 실행한다.
 
@@ -74,6 +82,7 @@ DB 통합 테스트는 환경을 가동한 상태에서 명시적으로 실행�
 ```sh
 TLAB_TEST_DATABASE_URL=postgres://tlab:tlab_dev@127.0.0.1:5432/tlab cargo test -p tlab --locked --test sqlxdb -- --ignored
 TLAB_TEST_DATABASE_URL=postgres://tlab:tlab_dev@127.0.0.1:5432/tlab cargo test -p tlab --locked --test migration -- --ignored
+TLAB_TEST_DATABASE_URL=postgres://tlab:tlab_dev@127.0.0.1:5432/tlab cargo test -p tlab-app --locked -- --include-ignored
 ```
 
 위 URL은 공개된 로컬 개발용 기본값이다. 포트를 변경했다면 테스트 URL에도 반영한다.
