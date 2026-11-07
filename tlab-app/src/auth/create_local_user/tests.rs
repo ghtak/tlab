@@ -16,9 +16,12 @@ use tokio::sync::Semaphore;
 use tower::ServiceExt;
 use tracing::instrument::WithSubscriber;
 
-use crate::app::{self, Container};
+use crate::app::{
+    self, Container,
+    error::{InternalFailure, InvalidInput},
+};
 use crate::auth::{
-    create_local_user::usecase::{self as create_local_user, Command, Error, InternalFailure},
+    create_local_user::usecase::{self as create_local_user, Command, Error},
     entity::{AccountStatus, NewAccount, NewIdentity, Provider},
     passwd_policy::{NonEmptyPasswordPolicy, PasswordPolicy, PasswordPolicyViolation},
     repository::{account, identity},
@@ -55,7 +58,7 @@ async fn request(container: Arc<Container>, payload: &str) -> (StatusCode, Value
     let response = crate::auth::router()
         .with_state(container)
         .oneshot(
-            Request::post("/api/accounts/local")
+            Request::post("/api/v1/accounts/local")
                 .header("content-type", "application/json")
                 .body(Body::from(payload.to_owned()))
                 .unwrap(),
@@ -104,7 +107,7 @@ async fn internal_error_logs_cause_without_exposing_it_in_the_response() {
     let (response, logs) = with_logs(async {
         Error::Internal(InternalFailure {
             stage: "password_hash",
-            cause: Box::new(std::io::Error::other("synthetic hash failure")),
+            cause: std::io::Error::other("synthetic hash failure").into(),
         })
         .into_response()
     })
@@ -145,16 +148,16 @@ async fn route_error_logs_are_explicit_and_linked_to_the_request_span() {
                 "/errors",
                 axum::routing::post(move || async move {
                     match status {
-                        400 => Error::InvalidInput {
+                        400 => Error::InvalidInput(InvalidInput {
                             field: "email",
                             code: "INVALID_EMAIL",
                             message: "email must be a single email address",
-                        },
+                        }),
                         409 => Error::EmailAlreadyExists,
                         503 => Error::Busy,
                         _ => Error::Internal(InternalFailure {
                             stage: "password_hash",
-                            cause: Box::new(std::io::Error::other("synthetic hash failure")),
+                            cause: std::io::Error::other("synthetic hash failure").into(),
                         }),
                     }
                     .into_response()
@@ -353,7 +356,7 @@ async fn check_local_user_contracts(test_url: String) {
         .await;
         assert!(matches!(
             result,
-            Err(Error::InvalidInput { field: "email", .. })
+            Err(Error::InvalidInput(InvalidInput { field: "email", .. }))
         ));
     }
     let slots = container
@@ -384,11 +387,11 @@ async fn check_local_user_contracts(test_url: String) {
     .await;
     assert!(matches!(
         result,
-        Err(Error::InvalidInput {
+        Err(Error::InvalidInput(InvalidInput {
             field: "password",
             code: "PASSWORD_REJECTED",
             ..
-        })
+        }))
     ));
 
     // Two simultaneous creations of one email must leave only one account.

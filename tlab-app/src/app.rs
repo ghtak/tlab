@@ -7,6 +7,7 @@ use tokio::sync::Semaphore;
 
 use crate::auth::passwd_policy::{NonEmptyPasswordPolicy, PasswordPolicy};
 
+pub mod error;
 pub mod response;
 
 #[derive(Debug, Deserialize, Clone)]

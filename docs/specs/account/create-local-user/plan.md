@@ -31,7 +31,7 @@ HTTP 처리·usecase·테스트를 사용자 생성 시나리오 안에 모으�
 
 ```text
 auth/
-├── route.rs                     # 하위 slice Router를 조합해 상위 HTTP 모듈에 제공
+├── route.rs                     # API 경로·메서드와 slice handler를 연결해 상위 HTTP 모듈에 제공
 ├── create_local_user/
 │   ├── mod.rs
 │   ├── route.rs                 # HTTP 입력·응답, 향후 RBAC 연결 위치
@@ -52,7 +52,7 @@ auth/
 | 공용 entity | 저장할 값과 저장된 행의 타입. 생성용 New 타입은 DB가 채울 ID·생성/변경 시각을 제외 |
 | 공용 repository | entity를 받아 bind·SQL 실행·행 매핑. 생성된 entity를 반환하고 DB 오류를 그대로 상위에 전달 |
 | app::Container | 비밀번호 정책·Argon2id 인스턴스·DB·공유 해싱 슬롯의 생성과 소유 |
-| auth/route.rs | 하위 slice Router를 모아 auth Router를 상위로 제공 |
+| auth/route.rs | API 경로·메서드와 각 slice handler를 직접 연결하고 auth Router를 상위로 제공 |
 | http.rs | auth 등 feature Router를 기존 HTTP·HTTPS 서버에 연결 |
 | tlab::password | Argon2id 연산·salt·PHC 형식. 앱의 비밀번호 정책·동시성·가입 절차는 소유하지 않음 |
 
@@ -99,9 +99,11 @@ pub struct PasswordPolicyViolation {
 
 업무 오류는 slice에 `InvalidInput`, `EmailAlreadyExists`, `Busy`, `Internal`로 구분한다. Internal은 원인과 실패 단계를 함께 보존한다. 필드 오류에는 사용자 원문을 넣지 않는다. DB·해싱 원인은 내부 진단용으로 보존하고 HTTP 응답에 SQL·PHC·DB 진단 문자열을 노출하지 않는다. 사용자 생성 오류를 표현하기 위해 공통 `tlab::Error`에 업무 전용 variant를 추가하지 않는다. (추론)
 
+입력·내부 오류 데이터는 [app::error](../../../../tlab-app/src/app/error.rs)의 `InvalidInput { field, code, message }`, `InternalFailure { stage, cause: tlab::Error }`를 공유한다. slice의 Error가 각각을 감싸며, 오류 종류·업무 해석과 HTTP 변환 책임은 유지한다. DB·해셔의 tlab::Error는 그대로 보존하고 전용 변환이 없는 Tokio 오류는 tlab::Error::Internal에 담는다. (확인: 후속 사용자 요청과 구현)
+
 ### HTTP 진입점과 접근 제어
 
-HTTP로 노출하고, 향후 RBAC 설계에서 제한된 사용자에게만 이 작업을 허용한다. RBAC의 역할·권한·인증 주체 계약은 후속 설계 범위다. 구현 경로는 `POST /api/accounts/local`이며 execute는 HTTP와 독립적으로 호출할 수 있게 설계한다. (확인: 노출·접근 제한 방향 / 추론: 경로·구조)
+HTTP로 노출하고, 향후 RBAC 설계에서 제한된 사용자에게만 이 작업을 허용한다. RBAC의 역할·권한·인증 주체 계약은 후속 설계 범위다. 구현 경로는 `POST /api/v1/accounts/local`이며 execute는 HTTP와 독립적으로 호출할 수 있게 설계한다. (확인: 노출·접근 제한 방향 / 추론: 경로·구조)
 
 권한 검사 연결 위치는 handler가 execute를 호출하기 전이다. 향후 권한 설계에 따라 인증된 호출자와 작업 권한을 검사한 후 입력 처리·해싱·DB 작업으로 진입한다. 지금 임의의 관리자 role·헤더·임시 토큰을 만들거나 RBAC가 구현됐다고 간주하지 않는다. 실제 인가 구현과 401·403 응답 계약은 후속 RBAC 설계에서 추가한다. (추론: 연결 위치 / 확인: 후속 범위)
 
@@ -120,7 +122,7 @@ HTTP로 노출하고, 향후 RBAC 설계에서 제한된 사용자에게만 이 
 
 `app::response::success(status, data)`와 `error(status, code, field, message)`가 정상·에러 JSON을 생성하고 `invalid_json`이 원문 없는 파싱 실패를 처리한다. `internal_error(message)`는 공통 500 응답만 생성하며 로그를 남기지 않는다. 업무 오류와 HTTP 상태·코드의 대응, 진단 로그 발생 여부는 각 route가 결정한다. 공통 응답 모듈은 auth usecase·SQLx·Tokio 오류 타입에 의존하지 않는다. `/db_status`도 공통 정상 응답을 사용하며 기존 JSON 구조는 유지한다. (확인)
 
-route의 `Internal` 분기가 작업(`operation`), 실패 단계(`stage`), 원인(`cause = ?failure.cause`)을 ERROR로 명시적으로 기록한다. 사용자 후속 의견에 따라 공통 `error_metadata` 분류기는 두지 않으며, SQLx·Tokio·앱 오류를 순회해 종류·SQLSTATE를 추출하는 처리를 제거한다. 원인은 usecase의 `InternalFailure`에 보존하고 서버 로그에 Debug 형식으로 출력하되, HTTP 응답은 일반 메시지를 유지한다. `Busy`는 `hash_capacity` 단계의 WARN 한 건으로 기록하고, 입력 오류·이메일 중복은 별도 진단 로그 없이 요청·응답 INFO로 관찰한다. 모든 로그는 현재 요청 span을 사용한다. 요청 본문·비밀번호·생성 해시를 별도로 로깅하지 않지만, cause 자체에 드라이버 진단·입력값이 들어 있다면 서버 로그에 포함될 수 있다. TraceLayer는 상태 코드만으로 별도의 실패 로그를 추가하지 않는다. (확인: 후속 변경 요청과 구현)
+route의 `Internal` 분기가 작업(`operation`), 실패 단계(`stage`), 원인(`cause = ?failure.cause`)을 ERROR로 명시적으로 기록한다. 사용자 후속 의견에 따라 공통 `error_metadata` 분류기는 두지 않으며, SQLx·Tokio·앱 오류를 순회해 종류·SQLSTATE를 추출하는 처리를 제거한다. 원인은 `app::error::InternalFailure`에 보존하고 서버 로그에 Debug 형식으로 출력하되, HTTP 응답은 일반 메시지를 유지한다. `Busy`는 `hash_capacity` 단계의 WARN 한 건으로 기록하고, 입력 오류·이메일 중복은 별도 진단 로그 없이 요청·응답 INFO로 관찰한다. 모든 로그는 현재 요청 span을 사용한다. 요청 본문·비밀번호·생성 해시를 별도로 로깅하지 않지만, cause 자체에 드라이버 진단·입력값이 들어 있다면 서버 로그에 포함될 수 있다. TraceLayer는 상태 코드만으로 별도의 실패 로그를 추가하지 않는다. (확인: 후속 변경 요청과 구현)
 
 이 매핑은 현재 HTTP 응답 계약이다. 제한된 사용자만 접근하도록 하는 인가 처리는 후속 RBAC 구현 범위다. HTTP 상태·응답 변환은 handler 책임이며 usecase는 HTTP 타입을 알지 않는다. (추론)
 
@@ -303,3 +305,20 @@ provider·status의 String 사용은 리뷰 중 논의에 따라 Rust enum으로
 - 공통 오류 분류기나 별도 로깅 계층 없이 기존 `InternalFailure`를 사용한다. 중간에 추가했던 `Display`·`Error::source` 구현은 직접 cause 로깅에 필요하지 않아 제거했다. 원인과 실패 단계는 기존처럼 usecase에서 보존한다. (확인)
 - `oneshot`과 직접 응답 변환 테스트를 갱신해 cause의 진단 메시지가 trace ID가 연결된 ERROR 한 건에 남고, HTTP 응답에는 포함되지 않는 것을 확인한다. DB 연동 테스트의 기대값도 독립 SQLSTATE 필드 대신 cause에 담긴 DB 진단을 확인하도록 조정한다. 원인 메시지에 포함된 입력값이 서버 로그에도 남을 수 있으며, 요청 본문·비밀번호·해시를 별도 필드로 로깅하는 동작은 추가하지 않는다. (확인: 변경 계약)
 - 최종 검증: `cargo test -p tlab-app --locked` 12개 통과·기존 DB 연동 1개 ignored, `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `git diff --check` 통과. 실제 DB 연동 테스트는 이번 후속 변경에서 실행하지 않았다. (확인)
+
+
+### 후속 변경: 공통 오류 데이터 분리
+
+- 승인 근거: slice별 Error의 지역성을 유지하면서 InvalidInput·InternalFailure를 공유하자는 논의에 대한 사용자 “ㅇㅇ 반영해줘” 요청. 두 데이터 구조를 app::error로 옮기고 가입·로그인이 공유하도록 변경했다. (확인)
+- InvalidInput은 field·code·message, InternalFailure는 stage·cause: tlab::Error를 보관한다. slice의 오류 분류와 route의 HTTP 변환·로깅 책임은 유지한다. DB·해셔 오류는 원래 분류를 보존하고 Tokio 등 전용 변환이 없는 오류는 Internal에 담는다. (확인)
+- 검증: `cargo test -p tlab-app --locked --offline` 14개 통과·DB 의존 2개 제외. 실제 PostgreSQL을 연결한 `TLAB_TEST_DATABASE_URL=<로컬 PostgreSQL URL> cargo test -p tlab-app --locked --offline -- --include-ignored` 16개 모두 통과. fmt·workspace Clippy·diff 검사도 통과했다. 고유 테스트 스키마를 정리했다. (확인)
+- 자체 점검: 입력 오류의 field·code·message, 내부 실패의 stage·원인, 기존 HTTP 상태·본문과 로그 계약을 대조했다. 회귀 테스트에서 내부 원인이 HTTP 응답에 노출되지 않으며 원래 tlab::Error 분류와 Tokio 실패의 Internal 분류가 보존됨을 확인했다. 스키마·설정·의존성 변경은 없다. (확인)
+
+### 관련 코드 리뷰: 로그인 구현·공통 오류 데이터
+
+- 사용자 요청으로 직전 로그인 커밋 `92ea677`과 미커밋 공통 오류 데이터 변경을 함께 리뷰했다. 가입 usecase·route·테스트의 공용 타입 적용도 포함하며, 전체 가입 구현을 다시 평가한 것은 아니다. 대상 식별·선행 검사·발견 사항·점수·복구 근거는 [로컬 로그인 코드 리뷰](../login-local/plan.md#코드-리뷰)에 기록했다. (확인)
+
+### 후속 변경: handler 직접 등록과 v1 경로
+
+- 사용자 요청으로 slice의 Router 대신 handler 함수를 auth::router에서 직접 등록한다. 사용자 추가는 `POST /api/v1/accounts/local`, 로그인은 `POST /api/v1/auth/local`로 제공한다. 과거 하위 Router 조합 기록을 대체하며 테스트·현재 설계·앱 개발 구조 문서를 갱신했다. (확인)
+- 일반 앱 테스트 14개 통과·DB 의존 2개 제외, 실제 PostgreSQL 포함 앱 테스트 16개 모두 통과. fmt·workspace Clippy·diff 검사 통과. 이전 리뷰 점수는 이번 변경 전 대상의 이력으로 유지한다. (확인)

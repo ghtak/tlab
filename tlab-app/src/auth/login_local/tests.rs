@@ -129,7 +129,16 @@ async fn verifier_errors_and_panics_are_internal_and_release_capacity() {
         )
         .await
         .unwrap_err();
-        assert!(matches!(error, Error::Internal(_)));
+        let Error::Internal(failure) = &error else {
+            panic!("expected internal failure: {error:?}");
+        };
+        if panic {
+            assert_eq!(failure.stage, "verify_task");
+            assert!(matches!(failure.cause, tlab::Error::Internal(_)));
+        } else {
+            assert_eq!(failure.stage, "password_verify");
+            assert!(matches!(failure.cause, tlab::Error::IllegalState(_)));
+        }
         assert_eq!(slots.available_permits(), 1);
         let response = error.into_response();
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
@@ -150,7 +159,7 @@ async fn request(container: Arc<Container>, path: &str, payload: String) -> (Sta
         )
         .await
         .unwrap();
-    if path.ends_with("/login") {
+    if path == "/api/v1/auth/local" {
         assert_eq!(response.headers()["cache-control"], "no-store");
         assert!(!response.headers().contains_key("set-cookie"));
     }
@@ -164,7 +173,7 @@ async fn request(container: Arc<Container>, path: &str, payload: String) -> (Sta
 async fn login(container: Arc<Container>, email: &str, password: &str) -> (StatusCode, Value) {
     request(
         container,
-        "/api/auth/local/login",
+        "/api/v1/auth/local",
         json!({"email": email, "password": password}).to_string(),
     )
     .await
@@ -238,7 +247,7 @@ async fn check_contracts(url: String) {
     drop(conn);
     let (status, created) = request(
         container.clone(),
-        "/api/accounts/local",
+        "/api/v1/accounts/local",
         json!({
             "nickname": "member", "email": "User@example.com", "password": " secret "
         })
@@ -303,7 +312,7 @@ async fn check_contracts(url: String) {
     assert_eq!(
         request(
             container.clone(),
-            "/api/accounts/local",
+            "/api/v1/accounts/local",
             json!({"nickname":"m", "email":"busy@example.com", "password":"secret"}).to_string()
         )
         .await
@@ -329,14 +338,14 @@ async fn check_contracts(url: String) {
             "INVALID_REQUEST",
         ),
     ] {
-        let (status, body) = request(container.clone(), "/api/auth/local/login", payload).await;
+        let (status, body) = request(container.clone(), "/api/v1/auth/local", payload).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(body["code"], code);
         assert!(!body.to_string().contains("sensitive-input"));
     }
     let (status, body) = request(
         container.clone(),
-        "/api/auth/local/login",
+        "/api/v1/auth/local",
         json!({"email":"User@example.com", "password":"x".repeat(2 * 1024 * 1024)}).to_string(),
     )
     .await;

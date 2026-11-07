@@ -1,7 +1,7 @@
 mod route;
 mod usecase;
 
-pub use route::router;
+pub(super) use route::create_local_user;
 
 #[cfg(test)]
 mod tests;

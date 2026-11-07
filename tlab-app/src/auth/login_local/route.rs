@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
 use axum::{
-    Json, Router,
+    Json,
     extract::{State, rejection::JsonRejection},
     http::{HeaderValue, StatusCode, header::CACHE_CONTROL},
     response::{IntoResponse, Response},
-    routing::post,
 };
 
 use super::usecase::{self, Error};
+use crate::app::error::InvalidInput;
 use crate::app::{Container, response};
 use crate::auth::entity::AccountStatus;
 
@@ -18,11 +18,7 @@ struct LoginResponse {
     status: AccountStatus,
 }
 
-pub fn router() -> Router<Arc<Container>> {
-    Router::new().route("/api/auth/local/login", post(login))
-}
-
-async fn login(
+pub(crate) async fn login(
     State(container): State<Arc<Container>>,
     payload: Result<Json<usecase::Command>, JsonRejection>,
 ) -> Response {
@@ -56,11 +52,11 @@ fn no_store(mut response: Response) -> Response {
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         no_store(match self {
-            Error::InvalidInput {
+            Error::InvalidInput(InvalidInput {
                 field,
                 code,
                 message,
-            } => response::error(StatusCode::BAD_REQUEST, code, Some(field), message),
+            }) => response::error(StatusCode::BAD_REQUEST, code, Some(field), message),
             Error::InvalidCredentials => response::error(
                 StatusCode::UNAUTHORIZED,
                 "INVALID_CREDENTIALS",

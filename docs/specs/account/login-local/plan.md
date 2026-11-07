@@ -50,7 +50,7 @@ tlab-app/src/auth/
 ├── repository/
 │   ├── identity.rs    # LOCAL 이메일 조회 추가
 │   └── account.rs     # ID 조회 추가
-└── route.rs           # 로그인 Router 조합
+└── route.rs           # API 경로·메서드와 slice handler 연결
 ```
 
 | 주체 | 소유하는 판단·행동 |
@@ -60,6 +60,7 @@ tlab-app/src/auth/
 | login_local::usecase::LocalLogin | 더미 PHC의 생성·비공개 보관, 입력 정리, 저장소 호출 조합, 비밀번호 검증 실행, 로그인 가능 상태 판단 |
 | identity/account repository | SQL·bind·entity 매핑, 미조회와 저장소 오류 구분 |
 | tlab::password | Argon2id·PHC 검증 연산, true/false/오류 반환 |
+| app::error | InvalidInput(field·code·message), InternalFailure(stage·cause: tlab::Error)의 공용 데이터 구조. slice 오류 분류·HTTP 변환은 소유하지 않음 |
 
 로그인 정책을 repository나 라이브러리 해셔에 넣지 않는다. 가입의 PasswordPolicy는 새 비밀번호 설정 규칙이므로 로그인에서 호출하지 않는다. 정책이 강화되어도 저장된 비밀번호로 인증할 수 있어야 한다. (추론: 제안·근거)
 
@@ -107,6 +108,8 @@ Container가 `LocalLogin::new(hasher, password_slots).await`로 usecase 인스�
 | Busy | 비밀번호 연산 슬롯이 모두 사용 중인 경우 |
 | Internal | DB·PHC·blocking 작업·자원 오류. 실패 stage와 cause 보존 |
 
+`Error::InvalidInput(app::error::InvalidInput)`과 `Error::Internal(app::error::InternalFailure)`로 공용 데이터를 감싼다. 공용 타입은 [app/error.rs](../../../../tlab-app/src/app/error.rs)에 두고 로그인 전용 오류 종류는 slice에 유지한다. 내부 원인은 원래 tlab::Error 분류로 보존하고, Tokio 등 전용 변환이 없는 원인은 tlab::Error::Internal에 담는다. tlab::Error에서 HTTP 응답을 자동 선택하지 않는다. (확인: 사용자 요청과 구현)
+
 입력 형식이 정상이어도 identity가 없으면 더미 PHC를 검증한 뒤 InvalidCredentials를 반환한다. 더미 검증 결과가 true여도 실제 identity가 없으면 성공할 수 없다. SNS identity에 같은 이메일이 있어도 인증 대상으로 사용하지 않는다. (추론: 제안)
 
 LOCAL identity의 password_hash가 NULL이거나 PHC가 손상·비지원이면 데이터 오류로 Internal을 반환한다. 해셔가 반환한 InvalidInput을 요청 비밀번호의 오류로 변환하지 않는다. identity가 있는데 소유 계정이 조회되지 않는 경우도 저장 무결성 오류로 Internal을 반환한다. (추론: 제안)
@@ -136,7 +139,7 @@ LOCAL identity의 password_hash가 NULL이거나 PHC가 손상·비지원이면 
 
 ### HTTP
 
-`POST /api/auth/local/login`을 비로그인 요청에 제공하고, `auth::router()`에 slice Router를 등록한다. JSON 필드는 email과 password만 허용하며 미지정·잘못된 타입·추가 필드는 기존 공통 JSON 오류로 반환한다. (확인: 구현)
+`POST /api/v1/auth/local`을 비로그인 요청에 제공하고, `auth::router()`에서 해당 경로·POST 메서드와 slice의 login handler를 직접 연결한다. slice는 별도 Router를 제공하지 않는다. JSON 필드는 email과 password만 허용하며 미지정·잘못된 타입·추가 필드는 기존 공통 JSON 오류로 반환한다. (확인: 구현)
 
 ```json
 {"email":"user@example.com","password":"입력한 비밀번호"}
@@ -224,3 +227,53 @@ route가 기존 요청 trace에 연결하여 Busy는 WARN, Internal은 operation
 - `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked --offline -- -D warnings`, `git diff --check`: 통과. 신규 파일의 공백과 변경 문서의 상대 링크도 확인했다. 의존성은 바뀌지 않아 별도 audit을 실행하지 않았다. (확인)
 - 자체 점검: 로그인 정책은 usecase, SQL·매핑은 repository, HTTP 응답 선택은 route, 인스턴스 조립은 Container에 있다. 비밀번호 검증 중 DB 연결을 보유하지 않고 공유 permit은 blocking 작업 종료까지 유지한다. 더미 해시의 true 결과로 미존재 계정에 로그인할 수 없음을 실제 더미 비밀번호 제출로 검증했다. Account를 반환하면서도 entity 전체를 HTTP로 노출하지 않고 원래 두 필드 응답을 유지했다. (확인)
 - 남은 범위: 새 엔드포인트의 TCP/HTTPS 실호출, 운영 부하와 로그 내용의 운영 검토, 토큰·세션·후속 요청 인증은 수행하지 않았다. 코드·문서만 변경했으며 DB migration·커밋·배포는 수행하지 않았다. (확인)
+
+### 후속 변경: 공통 오류 데이터 분리
+
+- 승인 근거: slice별 Error의 지역성을 유지하면서 InvalidInput·InternalFailure를 공유하자는 논의에 대한 사용자 “ㅇㅇ 반영해줘” 요청. 두 데이터 구조를 app::error로 옮기고 가입·로그인 usecase·route·테스트에 적용했다. (확인)
+- InternalFailure는 stage와 원본 tlab::Error를 보관한다. DB·해셔 오류의 분류를 유지하고 Tokio 작업·Semaphore 오류는 Internal로 감싸 원인을 보존한다. 로그인 실패 의미와 HTTP 상태·코드·메시지는 유지했다. (확인)
+- 검증·자체 점검: 실제 PostgreSQL을 연결한 앱 테스트 16개 모두 통과. fmt·workspace Clippy·diff 검사도 통과했다. 기존 HTTP 응답·로그 계약과 실패 stage·cause 보존을 확인했으며, 해셔의 IllegalState와 Tokio 작업 실패의 Internal 분류를 회귀 검증에 추가했다. 고유 테스트 스키마를 정리했으며 스키마·설정·의존성 변경은 없다. (확인)
+
+### 후속 변경: handler 직접 등록과 v1 경로
+
+- 승인 근거: 사용자 요청으로 auth::router가 실제 handler 함수를 직접 연결하도록 변경했다. slice별 Router 생성·merge를 제거하고 메서드·경로 등록은 auth/route.rs에서 담당한다. handler·입출력 타입·HTTP 오류 변환은 각 slice에 유지한다. (확인)
+- 최종 경로: 후속 사용자 정정에 따라 로그인은 `POST /api/v1/auth/local`, 사용자 추가는 `POST /api/v1/accounts/local`이다. 이전 `/api/auth/local/login`·`/api/accounts/local` 경로를 대체하며 이전 경로의 alias는 추가하지 않았다. 실제 호출 테스트·명세·앱 개발 구조 문서를 함께 갱신했다. (확인)
+- 검증: 최종 경로에서 일반 앱 테스트 14개 통과·DB 의존 2개 제외, 실제 PostgreSQL 포함 앱 테스트 16개 모두 통과. fmt·workspace Clippy·diff 검사 통과. 최종 diff에서 handler 연결과 요청 경로, no-store·쿠키 미생성 검증의 적용 조건을 대조했다. (확인)
+- 아래 코드 리뷰의 소스 스냅샷·점수는 이 경로 변경 전 대상에 대한 기록으로 보존한다. 이번 변경의 검증 결과를 해당 리뷰의 재리뷰 판정으로 취급하지 않는다. (확인)
+
+## 코드 리뷰
+
+### 대상과 선행 검사
+
+- 요청: 사용자 “이전의 commit과 같이 리뷰해줘”. 비교 기준 `06998d4f553c7d55f1c033bce1a2e95c9e5e0a1f`에서 로그인 구현 커밋 `92ea677ad7cfc2edf8fb1e57ff7f1615d00501bc` 및 현재 미커밋 공용 오류 데이터 변경까지 함께 검토했다. `app/error.rs` 신규 파일과 관련 문서도 포함한다. 이전 tracing 복구 커밋 자체는 비교 기준에 포함되어 있으므로 이번 변경 평가 대상은 아니다. (확인)
+- 식별: 변경된 Rust 소스 13개를 경로순으로 `경로 + NUL + 내용 + NUL` 결합한 SHA-256은 `902bc674b809bf1d244b783a2cd21404810ce24dfd49f31a066c84bd9488ff6a`다. 이번 리뷰에서는 실행 코드를 수정하지 않았다. (확인)
+- 환경: Rust/Cargo 1.97.1, aarch64-apple-darwin, 기본 feature. Clippy 0.1.97, rustfmt 1.9.0-stable, cargo-audit 0.22.2. (확인)
+- fmt·Clippy: 같은 세션·동일 최종 코드에서 수행한 `cargo fmt --all -- --check`와 `cargo clippy --workspace --all-targets --locked --offline -- -D warnings`의 통과 결과를 재사용했다. 이후 코드·의존성·설정 변경은 없다. (확인)
+- 의존성 검사: 이번 리뷰에서 `cargo audit`를 실행하여 통과했다. advisory DB `309392b18f6b17022f82c701f300433126901068`, advisory 1,422개·잠금 파일 의존성 291개 검사. 예외·경고 무시는 적용하지 않았다. (확인)
+- 조건부 검사: 직접 작성한 unsafe·메모리 조작·자체 동기화 알고리즘 변경은 없다. Tokio Semaphore·spawn_blocking의 소유권 조합이므로 Miri는 비대상이다. unsafe 사용 현황이 필요한 의존성 변경도 없어 Geiger는 미실행이다. 의존성 내부에 unsafe가 없다는 뜻은 아니다. (확인: 코드 범위 / 추론: 검사 선정)
+- 위 선행 검사를 통과한 뒤 LLM 리뷰를 진행했다. 테스트는 같은 최종 코드에서 확인한 일반 앱 테스트 14개 통과·DB 의존 2개 제외 및 실제 PostgreSQL을 포함한 앱 테스트 16개 전체 통과 결과를 재사용했다. 리뷰 중 테스트를 다시 실행하지 않았다. (확인)
+
+### 발견 사항과 판정
+
+- 수정이 필요한 결함을 발견하지 못했다. 로컬 자격 증명 검증, 계정 상태 판단, Account 반환과 HTTP 응답 필드 선택, 공통 오류 데이터와 slice 오류 분류의 경계를 대조했다. 요청·비밀번호·PHC의 전체 로깅 없이 기존 stage·cause 진단 계약을 유지한다. (확인: 검토 범위 / 추론: 결론)
+- 판정은 **통과**, 가이드의 초기 배점 기준으로 **100/100**, 변경 리스크는 **R2**다. 점수는 이번 요청 처리 범위의 평가이며 토큰·세션·운영 배포의 승인이나 보장을 뜻하지 않는다. (추론)
+
+### 항목별 점수
+
+| 항목 | 점수 | 근거·한계 |
+| --- | --- | --- |
+| 기능 | 4/4 | 가입한 REGISTERED·ACTIVE 계정 인증, WITHDRAWN 거부, 이메일 정리·원문 비밀번호, SNS·없는 이메일·불일치 구분, Account 반환과 두 필드 HTTP 응답을 코드·DB 테스트로 확인 |
+| 가독성과 구조 | 4/4 | 로그인 slice의 정책·더미 PHC 소유, Container의 조립, 저장소별 entity 조회, app::error의 공용 데이터와 지역 Error 구분이 합의와 일치 |
+| 안정성 | 4/4 | 검증 중 DB 연결을 놓고 permit을 blocking 작업에 보유. 취소·panic·슬롯 소진·DB 실패·손상 PHC를 구분하며 stage·tlab::Error 분류를 보존. 읽기만 수행하고 상태를 변경하지 않음 |
+| 보안 | 4/4 | LOCAL에 한정한 bind 조회, 실제 identity 부재 시 더미 검증의 true로 성공하지 않음, 자격 증명 일치 후 상태 판단, PHC 미직렬화·일반 내부 오류 응답·no-store. 토큰·시도 횟수 제한·이메일 인증은 합의한 후속 범위 |
+| 성능 | 4/4 | 기존 lower(email) 부분 고유 인덱스·계정 PK 조회, 요청별 더미 해시 생성 없음, 생성·검증 공유 동시성 제한과 DB 연결 수명 확인. 운영 처리량·부하는 측정하지 않음 |
+| 테스트 용이성 | 4/4 | in-process Router와 실제 PostgreSQL의 고유 스키마·정리, 주입한 해셔와 동기화 신호로 실패·취소 재현, DB 스냅샷으로 부수 효과 부재 확인. 저장소 대역을 추가하지 않고 실제 SQL 계약 검증 |
+
+점수 근거는 코드·계약·실행 결과의 조합이며 도구 통과 자체를 만점 근거로 삼지 않았다. (추론)
+
+### 복구와 남은 범위
+
+- 복구 가능성은 **코드 롤백만으로 이전 동작 복귀 가능**으로 판단한다. 로그인은 저장된 값을 읽고 새 토큰·세션·DB 데이터를 생성하지 않는다. migration·설정 키·의존성 변경이 없으며 공통 오류 데이터 변경도 앱 코드 안에 한정된다. 두 변경을 함께 복원하면 기존 가입과 로그인 추가 전 앱으로 돌아갈 수 있다. 실제 rollback은 실행하지 않았다. (확인: 전후 코드 / 추론: 복구 가능성)
+- 아키텍처 변경은 **있음**: 새 로그인 HTTP 계약·slice·LocalLogin 인스턴스, 저장소 조회 계약과 앱 공통 오류 데이터 소유 경계를 추가했다. 기존 가입 HTTP 응답과 tlab::Error 계약은 유지한다. 코드 롤백 가능·아키텍처 변경 있음의 조합으로 R2를 적용했다. (확인: 변경 범위 / 추론: 분류)
+- 적용·중단 조건: 기존 account migration이 적용된 DB에서 앱 코드를 적용한다. 로그인 5xx·503 증가가 관찰되면 새 로그인 호출을 중단하거나 앱 코드를 복원한다. 로그인은 쓰기·세션 발급을 하지 않아 별도 데이터 보정·세션 폐기가 필요하지 않다. 새 엔드포인트를 사용하는 외부 호출자가 생긴 뒤 롤백할 경우 해당 호출자도 함께 조정해야 한다. (추론)
+- 미검증 범위: 새 엔드포인트의 실제 TCP/HTTPS 호출, 운영 부하·처리량·완전한 타이밍 동일성, 실제 rollback, 토큰·세션 발급과 탈퇴 경쟁의 원자성. 로그의 cause 원문에 DB 진단 등이 포함될 수 있는 기존 정책은 유지하며 이를 별도로 강화한 변경은 아니다. 이번 리뷰는 이 범위를 보장하지 않는다. (확인: 수행·합의 범위)

@@ -1,7 +1,7 @@
 mod route;
 mod usecase;
 
-pub use route::router;
+pub(super) use route::login;
 pub use usecase::LocalLogin;
 
 #[cfg(test)]

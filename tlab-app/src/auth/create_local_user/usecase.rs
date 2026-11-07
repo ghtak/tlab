@@ -6,7 +6,10 @@ use tlab::password::PasswordHasher;
 use tokio::sync::{Semaphore, TryAcquireError};
 
 use crate::{
-    app::db::Database,
+    app::{
+        db::Database,
+        error::{InternalFailure, InvalidInput},
+    },
     auth::{
         entity::{AccountStatus, NewAccount, NewIdentity, Provider},
         passwd_policy::PasswordPolicy,
@@ -31,30 +34,17 @@ pub struct CreatedLocalUser {
 
 #[derive(Debug)]
 pub enum Error {
-    InvalidInput {
-        field: &'static str,
-        code: &'static str,
-        message: &'static str,
-    },
+    InvalidInput(InvalidInput),
     EmailAlreadyExists,
     Busy,
     Internal(InternalFailure),
 }
 
-#[derive(Debug)]
-pub struct InternalFailure {
-    pub stage: &'static str,
-    pub cause: Box<dyn std::error::Error + Send + Sync>,
-}
-
 impl Error {
-    fn internal(
-        stage: &'static str,
-        error: impl std::error::Error + Send + Sync + 'static,
-    ) -> Self {
+    fn internal(stage: &'static str, error: impl Into<tlab::Error>) -> Self {
         Self::Internal(InternalFailure {
             stage,
-            cause: Box::new(error),
+            cause: error.into(),
         })
     }
 }
@@ -69,33 +59,33 @@ pub async fn execute(
     let nickname = command.nickname.trim();
     let email = command.email.trim();
     if nickname.is_empty() {
-        return Err(Error::InvalidInput {
+        return Err(Error::InvalidInput(InvalidInput {
             field: "nickname",
             code: "NICKNAME_REQUIRED",
             message: "nickname must not be empty",
-        });
+        }));
     }
     if nickname.contains('\0') {
-        return Err(Error::InvalidInput {
+        return Err(Error::InvalidInput(InvalidInput {
             field: "nickname",
             code: "INVALID_NICKNAME",
             message: "nickname must not contain NUL characters",
-        });
+        }));
     }
     if EmailAddress::parse_with_options(email, Options::default().without_display_text()).is_err() {
-        return Err(Error::InvalidInput {
+        return Err(Error::InvalidInput(InvalidInput {
             field: "email",
             code: "INVALID_EMAIL",
             message: "email must be a single email address",
-        });
+        }));
     }
-    policy
-        .validate(&command.password)
-        .map_err(|violation| Error::InvalidInput {
+    policy.validate(&command.password).map_err(|violation| {
+        Error::InvalidInput(InvalidInput {
             field: "password",
             code: violation.code,
             message: violation.message,
-        })?;
+        })
+    })?;
 
     let encoded_hash = hash_password(hasher, hash_slots, command.password).await?;
     let mut tx = database
@@ -167,7 +157,9 @@ async fn hash_password(
         .try_acquire_owned()
         .map_err(|error| match error {
             TryAcquireError::NoPermits => Error::Busy,
-            TryAcquireError::Closed => Error::internal("hash_capacity", error),
+            TryAcquireError::Closed => {
+                Error::internal("hash_capacity", tlab::Error::Internal(error.into()))
+            }
         })?;
     tokio::task::spawn_blocking(move || {
         // Keep the slot until hashing actually ends, even when the caller is cancelled.
@@ -175,7 +167,7 @@ async fn hash_password(
         hasher.hash(&password)
     })
     .await
-    .map_err(|error| Error::internal("hash_task", error))?
+    .map_err(|error| Error::internal("hash_task", tlab::Error::Internal(error.into())))?
     .map_err(|error| Error::internal("password_hash", error))
 }
 

@@ -1,22 +1,18 @@
 use std::sync::Arc;
 
 use axum::{
-    Json, Router,
+    Json,
     extract::{State, rejection::JsonRejection},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::post,
 };
 
 use super::usecase as create_local_user;
+use crate::app::error::InvalidInput;
 use crate::app::{Container, response};
 
-pub fn router() -> Router<Arc<Container>> {
-    Router::new().route("/api/accounts/local", post(create_local_user))
-}
-
 // RBAC will check the authenticated caller before invoking this service.
-async fn create_local_user(
+pub(crate) async fn create_local_user(
     State(container): State<Arc<Container>>,
     payload: Result<Json<create_local_user::Command>, JsonRejection>,
 ) -> Response {
@@ -42,11 +38,11 @@ impl IntoResponse for create_local_user::Error {
     fn into_response(self) -> Response {
         use create_local_user::Error;
         match self {
-            Error::InvalidInput {
+            Error::InvalidInput(InvalidInput {
                 field,
                 code,
                 message,
-            } => response::error(StatusCode::BAD_REQUEST, code, Some(field), message),
+            }) => response::error(StatusCode::BAD_REQUEST, code, Some(field), message),
             Error::EmailAlreadyExists => response::error(
                 StatusCode::CONFLICT,
                 "EMAIL_ALREADY_EXISTS",

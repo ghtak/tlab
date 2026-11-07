@@ -42,7 +42,7 @@ tlab-app/src/
 ├── main.rs                        # 실행 경로 선택
 └── auth/
     ├── mod.rs                     # slice 선언·feature의 공개 계약
-    ├── route.rs                   # 각 slice Router의 등록·조합
+    ├── route.rs                   # API 경로·메서드와 slice handler를 직접 연결
     ├── entity.rs                  # 여러 slice가 공유하는 타입·불변 조건
     ├── create_managed_user.rs     # 작은 slice: 요청·처리·저장소 호출·테스트
     ├── login_managed_user/
@@ -59,7 +59,8 @@ tlab-app/src/
     └── migrations/               # feature 소유 스키마가 있을 때
 ```
 
-`auth/route.rs`는 Router를 조합하고, 실제 handler와 요청·응답 타입은 각 slice에 둔다.
+`auth/route.rs`는 `/api/v1/...` 경로·메서드에 각 slice의 handler 함수를 직접 등록하고 feature Router를 제공한다.
+실제 handler와 요청·응답 타입은 각 slice에 둔다. 한두 개의 경로를 등록하기 위해 slice마다 Router를 만들고 merge하지 않는다. (확인: 사용자 요청)
 Rust 모듈은 기본적으로 비공개로 두고, 상위 조립이나 외부 호출에 필요한 항목만 제한적으로 공개한다.
 하위 모듈의 테스트 파일은 해당 모듈에서 `#[cfg(test)] mod tests;`로 연결할 수 있다.
 필요한 역할과 파일만 만들며, `migrations/`의 실행·등록 방식은 별도 계약을 따른다. (제안·추론)
@@ -149,7 +150,7 @@ service와 repository는 HTTP 진입점을 알지 않으며, repository는 useca
 
 ```mermaid
 flowchart LR
-    H[http: Router 조립] --> F[auth: slice Router 조합]
+    H[http: Router 조립] --> F[auth: API 경로와 slice handler 연결]
     subgraph L[로그인 slice]
         R[route] --> U[usecase]
         end

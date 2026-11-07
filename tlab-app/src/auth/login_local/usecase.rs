@@ -6,7 +6,10 @@ use tlab::password::PasswordHasher;
 use tokio::sync::{Semaphore, TryAcquireError};
 
 use crate::{
-    app::db::Database,
+    app::{
+        db::Database,
+        error::{InternalFailure, InvalidInput},
+    },
     auth::{
         entity::{Account, AccountStatus},
         repository::{account, identity},
@@ -23,31 +26,18 @@ pub struct Command {
 
 #[derive(Debug)]
 pub enum Error {
-    InvalidInput {
-        field: &'static str,
-        code: &'static str,
-        message: &'static str,
-    },
+    InvalidInput(InvalidInput),
     InvalidCredentials,
     AccountUnavailable,
     Busy,
     Internal(InternalFailure),
 }
 
-#[derive(Debug)]
-pub struct InternalFailure {
-    pub stage: &'static str,
-    pub cause: Box<dyn std::error::Error + Send + Sync>,
-}
-
 impl Error {
-    fn internal(
-        stage: &'static str,
-        cause: impl std::error::Error + Send + Sync + 'static,
-    ) -> Self {
+    fn internal(stage: &'static str, cause: impl Into<tlab::Error>) -> Self {
         Self::Internal(InternalFailure {
             stage,
-            cause: Box::new(cause),
+            cause: cause.into(),
         })
     }
 }
@@ -78,18 +68,18 @@ impl LocalLogin {
         if EmailAddress::parse_with_options(email, Options::default().without_display_text())
             .is_err()
         {
-            return Err(Error::InvalidInput {
+            return Err(Error::InvalidInput(InvalidInput {
                 field: "email",
                 code: "INVALID_EMAIL",
                 message: "email must be a single email address",
-            });
+            }));
         }
         if command.password.is_empty() {
-            return Err(Error::InvalidInput {
+            return Err(Error::InvalidInput(InvalidInput {
                 field: "password",
                 code: "PASSWORD_REQUIRED",
                 message: "password must not be empty",
-            });
+            }));
         }
         let identity = {
             let mut conn = database
@@ -153,7 +143,9 @@ pub(super) async fn verify_password(
 ) -> Result<bool, Error> {
     let permit = slots.try_acquire_owned().map_err(|error| match error {
         TryAcquireError::NoPermits => Error::Busy,
-        TryAcquireError::Closed => Error::internal("hash_capacity", error),
+        TryAcquireError::Closed => {
+            Error::internal("hash_capacity", tlab::Error::Internal(error.into()))
+        }
     })?;
     tokio::task::spawn_blocking(move || {
         // Cancellation must not release capacity while blocking work still runs.
@@ -161,6 +153,6 @@ pub(super) async fn verify_password(
         hasher.verify(&password, &encoded_hash)
     })
     .await
-    .map_err(|e| Error::internal("verify_task", e))?
+    .map_err(|e| Error::internal("verify_task", tlab::Error::Internal(e.into())))?
     .map_err(|e| Error::internal("password_verify", e))
 }
