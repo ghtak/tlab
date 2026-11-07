@@ -12,6 +12,7 @@
 
 - [계정·identity 초기 스키마](../../../tlab-app/migrations/0001_create_tlab_account.sql): 숫자 ID, 가입·활성·탈퇴 상태, identity 우선순위. (확인)
 - [로컬 사용자 추가 설계](create-local-user/plan.md): 기존 Argon2id 해셔와 계정·LOCAL identity 생성 트랜잭션. HTTP 사용자 추가, entity 기반 저장과 검증 결과를 포함한다. RBAC는 후속 범위다. (확인)
+- [로컬 로그인 설계](login-local/plan.md): 이메일·비밀번호 인증과 계정 상태 판단을 구현했다. usecase는 인증된 Account를 반환하고 HTTP 응답은 계정 ID·상태를 제공한다. 토큰·세션 생성과 웹 계층의 토큰 처리는 별도 설계로 둔다. (확인)
 
 ## 합의한 개념과 책임
 

@@ -3,6 +3,18 @@ use crate::{
     auth::entity::{Identity, NewIdentity},
 };
 
+pub async fn find_local_by_email(
+    ctx: &mut Context<'_>,
+    email: &str,
+) -> tlab::Result<Option<Identity>> {
+    Ok(sqlx::query_as(
+        "SELECT * FROM tlab_account_identity WHERE provider = 'LOCAL' AND lower(email) = lower($1)",
+    )
+    .bind(email)
+    .fetch_optional(ctx.backend())
+    .await?)
+}
+
 pub async fn insert(ctx: &mut Context<'_>, entity: &NewIdentity) -> tlab::Result<Identity> {
     Ok(sqlx::query_as(
         "INSERT INTO tlab_account_identity \

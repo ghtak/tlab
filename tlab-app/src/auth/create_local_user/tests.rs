@@ -213,13 +213,21 @@ async fn container(url: String) -> Container {
     config.server.http.bind = "127.0.0.1:0".parse().unwrap();
     config.server.https.bind = "127.0.0.1:0".parse().unwrap();
     config.server.https.tls = None;
+    let passwd_hasher: Arc<dyn tlab::password::PasswordHasher> =
+        Arc::new(argon2id::Hasher::new(&config.passwd_hasher).unwrap());
+    let passwd_hash_slots = Arc::new(Semaphore::new(2));
+    let local_login =
+        crate::auth::LocalLogin::new(passwd_hasher.clone(), passwd_hash_slots.clone())
+            .await
+            .unwrap();
     Container {
         http: tlab::http::Server::new(&config.server.http).await.unwrap(),
         https: tlab::http::Server::new(&config.server.https).await.unwrap(),
         database: app::db::Database::new(&config.database).await.unwrap(),
-        passwd_hasher: Arc::new(argon2id::Hasher::new(&config.passwd_hasher).unwrap()),
+        passwd_hasher,
         passwd_policy: Arc::new(NonEmptyPasswordPolicy),
-        passwd_hash_slots: Arc::new(Semaphore::new(2)),
+        passwd_hash_slots,
+        local_login,
         config,
     }
 }

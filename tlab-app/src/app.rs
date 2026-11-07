@@ -12,6 +12,7 @@ pub mod response;
 #[derive(Debug, Deserialize, Clone)]
 #[serde(default, deny_unknown_fields)]
 pub struct AuthConfig {
+    /// Shared capacity for password generation and verification.
     pub max_concurrent_password_hashes: usize,
 }
 
@@ -73,6 +74,7 @@ pub struct Container {
     pub passwd_hasher: Arc<dyn password::PasswordHasher>,
     pub passwd_policy: Arc<dyn PasswordPolicy>,
     pub passwd_hash_slots: Arc<Semaphore>,
+    pub local_login: crate::auth::LocalLogin,
     pub database: db::Database,
 }
 
@@ -94,6 +96,8 @@ impl Container {
         let passwd_policy = Arc::new(NonEmptyPasswordPolicy);
         let passwd_hash_slots =
             Arc::new(Semaphore::new(config.auth.max_concurrent_password_hashes));
+        let local_login =
+            crate::auth::LocalLogin::new(passwd_hasher.clone(), passwd_hash_slots.clone()).await?;
         let database = db::Database::new(&config.database).await?;
         Ok(Self {
             config,
@@ -102,6 +106,7 @@ impl Container {
             passwd_hasher,
             passwd_policy,
             passwd_hash_slots,
+            local_login,
             database,
         })
     }
