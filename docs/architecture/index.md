@@ -51,7 +51,7 @@ flowchart TD
 - [비밀번호 해싱 모듈](../../tlab/src/password.rs): Argon2id·PBKDF2 해시 생성과 PHC 검증을 제공한다. [명세](../specs/password/hash/spec.md)와 [설계](../specs/password/hash/plan.md)를 참조한다.
 - [HTTP 모듈](../../tlab/src/http.rs): 앱이 조립한 Axum Router로 단일 HTTP 또는 HTTPS 리스너를 실행하고 정적 파일 Router 생성과 TLS 재로드를 제공한다. 다중 인스턴스 조정은 앱이 맡는다. [설계](../specs/http/plan.md)와 [검증·리뷰](../specs/http/verification.md)를 참조한다.
 - [앱 구성](../../tlab-app/src/app.rs): 설정을 소유하고 HTTP·HTTPS 설정 검증과 서버 생성을 담당하는 Container를 제공한다. [앱 진입점](../../tlab-app/src/main.rs)은 설정 로딩·tracing 초기화와 실행 경로 선택을, [앱 HTTP 모듈](../../tlab-app/src/http.rs)은 Router 조립과 서버 실행·종료를 맡는다. [앱 HTTP 명세](../specs/http/app/spec.md)를 참조한다. (확인)
-- [로컬 사용자 추가](../../tlab-app/src/auth/create_local_user/usecase.rs): 시나리오 안에 HTTP 처리·usecase·테스트를 모으고, auth 공용 entity와 저장소별 CRUD API를 사용한다. Argon2id·비밀번호 정책·해싱 동시성 자원은 Container가 조립한다. [설계·검증 결과](../specs/account/create-local-user/plan.md)를 참조한다. 접근 제한은 후속 RBAC 범위다. (확인)
+- [로컬 사용자 추가](../../tlab-app/src/auth/create_local_user/usecase.rs): 시나리오 안에 HTTP 처리·usecase·테스트를 모으고, auth 공용 entity와 저장소별 CRUD API를 사용한다. Argon2id·비밀번호 정책·해싱 동시성 자원은 Container가 조립한다. [설계·검증 결과](../specs/auth/create-local-user/plan.md)를 참조한다. 접근 제한은 후속 RBAC 범위다. (확인)
 
 ## 개발 가이드
 

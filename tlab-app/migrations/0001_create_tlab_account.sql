@@ -1,4 +1,4 @@
--- PostgreSQL. 기준: docs/specs/account/index.md
+-- PostgreSQL. 기준: docs/specs/auth/account.md
 -- 계정은 프로필·상태를, 로그인 수단은 인증 식별자·이메일·우선순위를 소유한다.
 -- 가입은 하나의 트랜잭션에서 다음 순서로 수행한다.
 -- 1. 계정을 INSERT하고 RETURNING id로 계정 ID를 받는다.

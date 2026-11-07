@@ -9,7 +9,7 @@ status: accepted
 
 | 관계 | 대상 | 설명 |
 | --- | --- | --- |
-| realizes | [계정 기능 구상](../index.md) | 계정과 identity 분리, 로컬 가입 |
+| realizes | [계정 기능 구상](../account.md) | 계정과 identity 분리, 로컬 가입 |
 | follows | [PLN-PASSWORD-HASH](../../password/hash/plan.md) | 기존 Argon2id 해셔의 생성·저장 계약 |
 
 ## 목적과 범위

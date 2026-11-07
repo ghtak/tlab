@@ -64,7 +64,7 @@ JSON 입력은 `nickname`, `email`, `password`이며 성공 시 HTTP 201과 계�
 `auth::passwd_policy::PasswordPolicy` 구현체로 교체할 수 있다.
 `[auth] max_concurrent_password_hashes`의 기본값은 2이며, 슬롯이 가득 차면 HTTP 503을 반환한다.
 현재 인증·인가 검사는 없고 접근 제한은 후속 RBAC에서 구현한다.
-VSA 배치·entity 기반 저장소 API·오류 계약은 [로컬 사용자 추가 설계](docs/specs/account/create-local-user/plan.md)를 참조한다.
+VSA 배치·entity 기반 저장소 API·오류 계약은 [로컬 사용자 추가 설계](docs/specs/auth/create-local-user/plan.md)를 참조한다.
 
 로컬 테스트용 PostgreSQL·Valkey·Oracle Free 환경은 [DB 검증 도구](docs/verification/tools/database/README.md)를 참조한다.
 Docker·Compose·just를 준비한 뒤 프로젝트 루트에서 실행한다.
