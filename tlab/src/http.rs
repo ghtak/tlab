@@ -31,6 +31,8 @@ use tower_http::services::ServeDir;
 
 use crate::{Error, Result, keyfiles::TlsCertFile};
 
+pub mod trace;
+
 /// One listener. `tls: None` serves HTTP; `Some` serves HTTPS.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -53,6 +53,131 @@ status: draft
 - Windows는 PowerShell의 curl 별칭을 피하도록 `curl.exe`를 사용한다. HTTPS 검증은 `--cacert`로 신뢰를 지정한다.
 - 검증 도구·사용법, 도구와 독립적인 기능 기대 결과, 작업별 실제 실행 기록을 분리한다.
 
+## 요청 추적 추가 제안
+
+사용자가 제시한 `TraceparentData`, `new_request_span`, `get_current_traceparent` 예시와 `TraceLayer` 연결 요청을 기준으로 정리한다. 현재 앱의 `http.rs`에는 사용자가 추가한 `TraceLayer::new_for_http()` 변경이 있으며, 앱의 `tower-http` 의존성과 라이브러리의 `trace` feature는 아직 없다. 공통 tracing 초기화는 `Registry`를 사용한다. (확인)
+
+### 단계별 진행 상태
+
+- 요구사항 정리: 승인. 요구사항 제시 후 사용자의 “진행해” 응답을 승인 근거로 한다.
+- 설계: 승인. 사용자의 “구현및 리뷰진행” 응답을 승인 근거로 한다. 후속 parser 제안에 따라 버전 `00`만 수용하는 `split` 기반 검증으로 조정했다.
+- 구현·검증: 완료. 사용자의 후속 의견을 반영하여 새 요청 추적 검증은 `oneshot`으로 수행했다.
+- 자체 점검·코드 리뷰: 사용자의 구현·리뷰 일괄 요청에 따라 완료. 아래 결과는 해당 미커밋 변경에 대한 평가이며, 문서 전체의 채택 상태와 구분한다.
+
+<a id="req-http-app-004"></a>
+### REQ-HTTP-APP-004: 요청별 추적 컨텍스트
+
+- 수신 `traceparent`가 지원 버전 `00`의 유효한 값이면 trace ID를 이어받고, 수신 span ID를 요청 span의 `parent_span_id`로 기록한다. 다른 버전은 새 trace로 시작한다.
+- 헤더가 없거나 유효하지 않으면 새 trace ID로 시작한다. 잘못된 추적 헤더 때문에 HTTP 요청을 거부하지 않는다.
+- 각 요청은 새 span ID를 생성하며, trace ID와 span ID는 각각 32자리·16자리의 소문자 16진수이고 전체가 0인 ID를 생성하거나 수용하지 않는다.
+- 새 trace의 로그상 부모 ID는 예시처럼 16자리 0으로 표시한다. 이 값은 유효한 외부 부모 ID와 구분한다.
+- 완료 조건: 유효 헤더의 부모 연결, 누락·잘못된 헤더의 새 trace 생성, 요청별 span ID 분리를 검증한다.
+
+<a id="req-http-app-005"></a>
+### REQ-HTTP-APP-005: 요청 로그 연결
+
+- 요청 span 이름은 `http_request`로 하고 `method`, `uri`, `trace_id`, `span_id`, `parent_span_id` 필드를 기록한다.
+- 요청 시작·응답 상태·처리 시간과 서버 오류를 요청 span 안에서 기록하며, 기본 `info` 필터에서도 요청·응답 로그를 확인할 수 있게 한다.
+- 공통 기능은 `tlab::http::trace`가 제공하고, 앱이 조립한 Router에 `TraceLayer`를 적용한다. 기존 사용자 변경을 이어서 보완한다.
+- 완료 조건: HTTP·HTTPS가 공유하는 Router의 핸들러 로그와 요청·응답 로그에서 동일한 요청 ID를 확인한다. 정상 응답과 4xx·5xx를 구분해 확인한다.
+
+<a id="req-http-app-006"></a>
+### REQ-HTTP-APP-006: 현재 요청 컨텍스트 조회
+
+- `TraceparentData`는 `trace_id`, `span_id`를 제공한다.
+- `get_current_traceparent()`는 현재 요청 컨텍스트를 반환하고, 요청 안에서 만든 자식 span에서도 조회할 수 있게 한다.
+- 요청 컨텍스트가 없거나 subscriber가 지원하지 않거나 span이 필터링되어 컨텍스트를 보관하지 못하면 `None`을 반환한다. 추적 조회 때문에 panic을 발생시키지 않는다.
+- 완료 조건: 요청 span·자식 span에서의 조회, 요청 밖·subscriber 부재 시의 안전한 반환을 검증한다.
+
+이번 제안은 수신 컨텍스트와 로그 연결, 현재 ID 조회까지다. 응답 헤더 추가, 외부 HTTP 클라이언트의 헤더 자동 주입, `tracestate` 전달, OpenTelemetry exporter는 별도 요청이 있을 때 범위를 정한다. (추론)
+
+### 요청 추적 설계
+
+#### 책임과 공개 API
+
+| 위치 | 제공할 동작 |
+| --- | --- |
+| `tlab/src/http/trace.rs` | `TraceparentData`, `new_request_span<B>(&Request<B>) -> tracing::Span`, `get_current_traceparent() -> Option<TraceparentData>` |
+| `tlab/src/http.rs` | `pub mod trace`로 공통 API 공개. 리스너 실행 책임은 유지 |
+| `tlab-app/src/http.rs` | 모든 route와 정적 Router를 조합한 뒤 공통 `TraceLayer` 적용. 요청·응답 로그 수준을 INFO로 선택 |
+| Cargo 의존성 | 앱에 `tower-http` 0.7의 `trace` feature 추가. 라이브러리에 ID 생성용 `uuid`의 `v4` feature 추가 |
+
+요청 추적은 재사용 가능한 HTTP 관심사이고, 적용 대상·로그 수준의 선택은 앱이 소유하므로 위처럼 배치한다. 기존 subscriber 초기화와 HTTP·HTTPS 서버 구현은 재사용한다. (추론)
+
+#### 수신 헤더와 ID 생성
+
+- `parse_traceparent`는 모듈 내부 함수로 둔다. 단일 헤더를 읽고 `version-trace_id-parent_id-flags`의 필수 영역을 검증한다. 중복 헤더는 모호한 입력으로 보고 새 trace로 시작한다.
+- 사용자가 제시한 `split('-')` 방식으로 정확히 네 필드인지 확인하고, `TRACEPARENT_VERSION = "00"`, ID 검증, flags 검증을 한 조건식으로 표현한다. `is_hex`는 길이와 소문자 16진수를, `is_valid_id`는 이에 더해 전체 0이 아님을 확인한다. 버전 `00` 형식은 [W3C Trace Context](https://www.w3.org/TR/trace-context/#traceparent-header)를 따른다. 상위 버전의 수신 호환성은 지원하지 않고 새 trace로 시작하는 제한이 있다. (확인: 사용자 후속 제안 / 선택: 이번 지원 범위)
+- 정상 헤더의 trace ID와 부모 span ID만 사용한다. flags는 형식만 확인하고 이번 로컬 로그의 필터나 sampling 판단에 사용하지 않는다.
+- 새 trace ID는 UUID v4의 하이픈 없는 문자열로 만든다. 새 span ID는 별도의 UUID v4에서 16자리 16진수 부분을 취하고 전체 0이면 다시 생성한다. 요청마다 독립적으로 생성한다.
+- 신규 trace의 `parent_span_id`는 `0000000000000000`이다. 외부 입력에서 같은 부모 ID가 오면 유효하지 않은 헤더로 처리한다.
+
+#### span과 컨텍스트 조회
+
+- `new_request_span`은 INFO 수준의 `http_request` span을 만들고 요구사항의 다섯 필드를 기록한다. `parent: None`으로 로컬 요청 span을 독립시켜, 호출 시 우연히 활성화된 다른 요청 span을 부모로 삼지 않는다. 수신 부모 관계는 `parent_span_id` 필드로 표현한다.
+- 예시와 같이 `with_subscriber`와 `Registry`의 span extensions에 `TraceparentData`를 저장한다. span이 비활성 상태이거나 지원되지 않는 subscriber이면 저장 없이 반환한다.
+- `get_current_traceparent`는 현재 span부터 부모 방향으로 탐색하고 처음 발견한 `TraceparentData`를 복제한다. extensions가 없는 일반 자식 span에서도 요청 ID를 찾는다. subscriber 부재·미지원은 `None`이다.
+- 별도로 spawn한 task에는 tracing 컨텍스트가 자동 전달된다고 보장하지 않는다. 호출자가 `.instrument(...)` 등 기존 tracing 방식으로 span을 전달해야 한다.
+
+#### 앱 연결과 로그
+
+기존 사용자의 `TraceLayer::new_for_http()`에 `.make_span_with(tlab::http::trace::new_request_span)`를 연결하고 `DefaultOnRequest`와 `DefaultOnResponse`는 INFO, `DefaultOnFailure`는 ERROR로 명시한다. 응답에는 status와 응답 헤더 생성까지의 latency가 기록된다. 스트리밍 본문 전체 전송 시간은 이번 처리 시간의 의미에 포함하지 않는다.
+
+앱 `main`은 `initialize`의 반환 guard를 `_tracing_guard`로 보관한다. 기존 `let _ = ...`는 즉시 guard를 drop하므로, 요청 로그의 비동기 writer 수명을 유지하기 위해 보완한다. (확인)
+
+기본 HTTP classifier로 5xx는 오류 로그를 남기고, 4xx는 응답 상태로 확인한다. 기본 요청·응답 로그가 DEBUG인 점은 로컬 `tower-http` 0.7.1 소스에서 확인했으므로 INFO로 조정한다. (확인)
+
+#### 검증 방법
+
+- REQ-HTTP-APP-004: 공개 `new_request_span`을 통해 정상·누락·잘못된 헤더의 ID와 부모 필드, ID 형식과 요청 간 분리를 검증한다. 경계 입력은 잘못된 길이·대문자·0 ID·버전·flags·중복 헤더를 포함한다.
+- REQ-HTTP-APP-006: 전역 subscriber를 변경하지 않는 격리된 Registry로 요청 span·자식 span의 조회, 요청 밖·비활성 span·미지원 subscriber에서 `None`을 확인한다. 동시 요청의 ID가 섞이지 않는지도 확인한다.
+- REQ-HTTP-APP-005: 테스트 Router와 실제 TraceLayer를 연결하고 로그 writer를 격리해 200·404·500 응답의 상태·latency·요청 ID, INFO 필터의 요청·응답 기록과 5xx 오류 기록을 검증한다.
+- `cargo fmt --all -- --check`, `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`를 수행한다. 테스트 실행에 필요한 환경 문제는 기능 실패와 구분해 기록한다.
+- 사용자의 후속 “검증은 oneshot 으로 가능하지 않아?” 의견을 반영해 실제 서버를 새로 실행하는 검증은 생략한다. 서버 조립 시 사용하는 동일한 `trace_requests` 함수와 `TraceLayer`를 테스트 Router에 적용해 `oneshot`으로 검증한다. 리스너·TLS 코드는 변경하지 않았으며 기존 HTTP·HTTPS 통합 테스트 결과를 재사용한다. (확인)
+
+### 요청 추적 구현·검증 결과
+
+- `tlab::http::trace`에 요청 span 생성·현재 컨텍스트 조회를 추가했다. parser는 사용자가 제시한 `split` 기반으로 구현했고, 버전 `00`만 수용한다. flags를 sampling 판단에 사용하지 않는다.
+- 앱의 기존 TraceLayer 변경을 보완해 요청·응답 INFO, 서버 오류 ERROR와 요청 ID를 연결했다. `trace_requests`는 실제 앱과 `oneshot` 테스트에서 함께 사용한다.
+- tracing guard를 main 종료까지 보관하도록 수정했다. DB·설정·응답 본문·HTTP·HTTPS 리스너 계약은 변경하지 않았다. (확인)
+
+| 실행 | 결과와 범위 |
+| --- | --- |
+| `cargo test --workspace --locked` | 통과. 라이브러리·앱·doc tests와 기존 HTTP·HTTPS 통합 테스트 포함. 기존의 격리 실행용 1개와 PostgreSQL 연동 6개는 기본 설정대로 ignored |
+| `cargo test -p tlab-app http::tests --locked` | 최종 테스트 보완 후 2개 통과. `oneshot`으로 200·404·500과 헤더 누락·오류·미지원 버전, 로그의 부모 ID와 trace/span ID, 동시 요청 분리를 확인 |
+| `tlab/tests/http_trace.rs` | 워크스페이스 실행에서 4개 통과. 정상 헤더·flags, 0 ID·대문자·잘못된 길이·버전·중복 헤더, 자식 span 조회, 독립된 요청 root, subscriber 부재·미지원·필터링을 확인 |
+| `cargo fmt --all -- --check` | 최종 변경에서 통과 |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | 최종 테스트 보완 후 통과 |
+| `cargo audit` | 종료 코드 0, 차단 advisory 없음. 최종 코드와 동일한 Cargo.lock 대상으로 실행 |
+| `git diff --check` | 통과 |
+
+워크스페이스 전체 테스트 후 앱의 `oneshot` 로그 테스트에 헤더 누락·오류·미지원 버전을 보완했다. 그 이후 영향받은 앱 테스트와 fmt·clippy를 재실행했다. tracing 초기화·파일 writer의 수명 계약은 기존 `tlab/tests/tracing.rs` 검사 결과를 재사용한다. (확인)
+
+별도 앱 프로세스의 실행 검증은 로컬 포트 바인딩 권한에서 차단되었고, 권한 확대 요청은 사용자가 중단했다. 이후 사용자 의견에 따라 `oneshot` 검증으로 범위를 조정했으며 실제 프로세스 검증을 통과한 것으로 기록하지 않는다. PostgreSQL 연동 ignored 테스트는 이번 변경 대상이 아니므로 별도로 실행하지 않았다. (확인)
+
+### 요청 추적 코드 리뷰
+
+- 대상: `f73e219` 대비 이번 요청 추적의 미커밋 변경. 시작 시 존재한 앱 TraceLayer 변경을 보존·완성한 부분, 신규 trace 모듈·테스트, 의존성·잠금 파일, tracing guard와 본 명세를 포함한다.
+- 선행 검사: 위 fmt → clippy → audit 순서로 통과 후 LLM 리뷰 수행. 최종 테스트 보완 후 fmt·clippy 결과를 갱신했으며, 잠금 파일이 같아 audit 결과는 재사용했다.
+- 실행 환경: rustc 1.97.1, cargo 1.97.1, cargo-audit 0.22.2, 기본 feature·호스트 target. RustSec DB commit `309392b18f6b17022f82c701f300433126901068`, 이번 세션에서 갱신·실행.
+- Miri: unsafe·메모리 조작이나 해당 안전성 전제 변경이 없어 비대상. Geiger: 참고 도구로 실행하지 않았으며 의존성에 unsafe가 없다고 판단하지 않는다.
+- 발견 사항: 수정이 필요한 결함 없음. 헤더 검증, async 요청 span의 범위, 자식 span 탐색, 필터링·subscriber 실패 경로, 기존 사용자 변경 보존을 확인했다. (확인)
+- 판정: 프로젝트 가이드의 초기 제안 기준으로 통과, 100/100. 이 점수는 아래 제한된 변경 범위의 항목별 판단이며 별도 독립 평가자의 리뷰나 운영 성능 측정 결과는 아니다. (추론)
+
+| 항목 | 점수(0~4) | 근거 |
+| --- | ---: | --- |
+| 기능 | 4 | 지원 버전·입력 경계·부모 연결·자식 조회·로그와 응답 상태를 공개 API 및 실제 layer로 확인 |
+| 가독성과 구조 | 4 | HTTP 공통 기능과 앱 적용 책임 분리, 사용자 제안 parser 반영, 서버·subscriber 초기화 구조 재사용 |
+| 안정성 | 4 | 요청별 새 span과 독립 root, 동시 요청 격리, subscriber 부재·필터링 안전 반환, guard 수명 보완 |
+| 보안 | 4 | ID·flags의 길이·문자 검증, 0 ID·모호한 중복 헤더 거부, 수신 flags로 로그 필터를 바꾸지 않음. 요청 본문·전체 헤더 로깅 추가 없음 |
+| 성능 | 4 | 고정 네 필드 분리, 유효성 실패 시 문자열 복제 생략, 요청당 ID 생성과 현재 span 깊이에 따른 컨텍스트 탐색. 추가 네트워크·DB I/O 없음 |
+| 테스트 용이성 | 4 | 실제 앱의 layer 적용 함수를 재사용하며 Registry와 writer를 격리. DB·서버 프로세스 없이 입력·출력·동시성 계약 재현 |
+
+- 복구 가능성: 이전 코드를 복원하면 동작 복구 가능. DB 스키마·저장 데이터·외부 상태 변환이 없고 새 필수 설정도 없어 별도 보정이 필요하지 않다. 기존에 기록된 로그는 유지되며 실제 롤백 실행은 하지 않았다. (추론)
+- 아키텍처 변경: 없음. `tlab-app → tlab` 의존 방향과 Router 조립·서버 실행 책임을 유지하면서 선택적인 HTTP 보조 API를 추가했다. 기존 소비자 전환이나 배포 순서 변경은 필요하지 않다. (추론)
+- 리스크: R1. 범위는 요청 로그와 로컬 컨텍스트이며 코드 복원으로 동작을 되돌릴 수 있다. (추론)
+- 제한: 버전 `00`만 지원하며 출력 헤더·외부 요청 전파는 제공하지 않는다. 비활성 요청 span에서는 컨텍스트 조회가 `None`이고, 새 task에는 호출자가 span을 전달해야 한다. latency는 응답 헤더 준비까지이며 스트리밍 전송 완료 시간이 아니다.
+
 ## 구성
 
 `main.rs`의 설정 로딩 → tracing 초기화 → `app::Container::new`의 프로토콜 검증·두 `Server::new` → `http.rs`의 `/health`·정적 Router 조립 → `run(router)`·종료 순서다.

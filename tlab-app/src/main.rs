@@ -11,7 +11,7 @@ use tlab::Error;
 #[tokio::main]
 async fn main() -> tlab::Result<()> {
     let config = load_config()?;
-    let _ = tlab::tracing::initialize(&config.tracing)?;
+    let _tracing_guard = tlab::tracing::initialize(&config.tracing)?;
 
     let options = options::Options::parse(std::env::args_os().skip(1))?;
     if let Some(path) = options.migrate {
