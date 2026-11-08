@@ -58,7 +58,6 @@ where
 mod tests {
     use super::*;
     use axum::{Json, Router, body::Body, http::Request, routing::post};
-    use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
     use serde_json::{Value, json};
     use tower::ServiceExt;
 
@@ -113,34 +112,6 @@ mod tests {
             serde_json::from_slice::<Value>(&body).unwrap(),
             json!({"sub":"123", "body":{"hello":true}})
         );
-        let key = EncodingKey::from_ed_pem(material.private_key_pem().as_bytes()).unwrap();
-        let claims = json!({"iss":"issuer","aud":"audience","sub":"123","sid":uuid::Uuid::new_v4(),"iat":now,"exp":now+600,"user":{}});
-        let sign = |value: &Value| encode(&Header::new(Algorithm::EdDSA), value, &key).unwrap();
-        let mut invalid = Vec::new();
-        for (field, value) in [
-            ("iss", json!("wrong")),
-            ("aud", json!("wrong")),
-            ("sub", json!("")),
-        ] {
-            let mut altered = claims.clone();
-            altered[field] = value;
-            invalid.push(sign(&altered));
-        }
-        let mut expired = claims.clone();
-        expired["iat"] = json!(now - 601);
-        expired["exp"] = json!(now - 1);
-        invalid.push(sign(&expired));
-        let mut missing = claims.clone();
-        missing.as_object_mut().unwrap().remove("sid");
-        invalid.push(sign(&missing));
-        invalid.push(
-            encode(
-                &Header::new(Algorithm::HS256),
-                &claims,
-                &EncodingKey::from_secret(b"wrong"),
-            )
-            .unwrap(),
-        );
         let mut tampered = token.expose_secret().to_owned();
         let signature_start = tampered.rfind('.').unwrap() + 1;
         let replacement = if &tampered[signature_start..signature_start + 1] == "A" {
@@ -149,25 +120,24 @@ mod tests {
             "A"
         };
         tampered.replace_range(signature_start..signature_start + 1, replacement);
-        invalid.push(tampered);
-        let mut cases = vec![
-            vec![],
-            vec!["Basic abc".into()],
-            vec!["Bearer  abc".into()],
-            vec![
-                format!("Bearer {}", token.expose_secret()),
-                format!("Bearer {}", token.expose_secret()),
-            ],
-        ];
-        cases.extend(
-            invalid
-                .into_iter()
-                .map(|value| vec![format!("Bearer {value}")]),
-        );
-        for case in cases {
-            let response = send(case).await;
-            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-            assert_eq!(response.headers()[WWW_AUTHENTICATE], "Bearer");
+        // Cryptographic and claim permutations belong to token tests; this checks
+        // that the HTTP boundary turns verifier rejection into a Bearer challenge.
+        for (name, auth) in [
+            ("missing", vec![]),
+            ("wrong scheme", vec!["Basic abc".into()]),
+            ("extra space", vec!["Bearer  abc".into()]),
+            (
+                "duplicate authorization",
+                vec![
+                    format!("Bearer {}", token.expose_secret()),
+                    format!("Bearer {}", token.expose_secret()),
+                ],
+            ),
+            ("invalid signature", vec![format!("Bearer {tampered}")]),
+        ] {
+            let response = send(auth).await;
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{name}");
+            assert_eq!(response.headers()[WWW_AUTHENTICATE], "Bearer", "{name}");
         }
     }
 }

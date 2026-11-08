@@ -7,6 +7,8 @@ mod refresh_lifecycle;
 mod repository;
 mod route;
 mod session_policy;
+#[cfg(test)]
+mod test_support;
 pub mod token;
 
 #[allow(unused_imports, reason = "Token login is connected by API step 6")]

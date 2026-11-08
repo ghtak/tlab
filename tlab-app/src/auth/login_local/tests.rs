@@ -179,9 +179,11 @@ async fn login(container: Arc<Container>, email: &str, password: &str) -> (Statu
     .await
 }
 
-#[tokio::test]
-#[ignore = "requires PostgreSQL and TLAB_TEST_DATABASE_URL"]
-async fn local_login_http_contracts() {
+async fn isolated<F, Fut>(scenario: F)
+where
+    F: FnOnce(String) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
     let url = std::env::var("TLAB_TEST_DATABASE_URL").expect("set TLAB_TEST_DATABASE_URL");
     let admin = app::db::Database::new(&tlab::sqlxdb::Config {
         url: url.clone(),
@@ -203,7 +205,7 @@ async fn local_login_http_contracts() {
         .await
         .unwrap();
     let separator = if url.contains('?') { '&' } else { '?' };
-    let result = tokio::spawn(check_contracts(format!(
+    let result = tokio::spawn(scenario(format!(
         "{url}{separator}options=-csearch_path%3D{schema}"
     )))
     .await;
@@ -214,7 +216,7 @@ async fn local_login_http_contracts() {
     result.unwrap();
 }
 
-async fn check_contracts(url: String) {
+async fn fixture(url: String) -> (Arc<Container>, Value, i64) {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("config/app.toml");
     let mut config: app::Config = tlab::config::load(path, "TLAB_LOGIN_TEST").unwrap();
     config.database.url = url;
@@ -269,396 +271,505 @@ async fn check_contracts(url: String) {
     .await;
     assert_eq!(status, StatusCode::CREATED);
     let id = created["account_id"].as_i64().unwrap();
-    let snapshot = snapshot(&container).await;
-    let (status, body) = login(container.clone(), " user@EXAMPLE.com ", " secret ").await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["account_id"], created["account_id"]);
-    assert_eq!(body["status"], created["status"]);
-    assert!(body["access_token"].is_string());
-    assert!(body["refresh_token"].is_string());
-    let access = body["access_token"].as_str().unwrap();
-    let refresh = body["refresh_token"].as_str().unwrap();
-    async fn protected(claims: crate::auth::token::AccessClaims) -> axum::Json<Value> {
-        axum::Json(json!({"sid": claims.sid, "sub": claims.sub}))
-    }
-    let router = crate::auth::router()
-        .route("/protected", axum::routing::get(protected))
-        .with_state(container.clone());
-    let protect = |token: &str| {
-        let router = router.clone();
-        let token = token.to_owned();
-        async move {
-            let response = router
-                .oneshot(
-                    Request::get("/protected")
-                        .header("authorization", format!("Bearer {token}"))
-                        .body(Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
-            assert_eq!(response.status(), StatusCode::OK);
-            serde_json::from_slice::<Value>(&to_bytes(response.into_body(), 4096).await.unwrap())
-                .unwrap()
-        }
-    };
-    let first_claims = protect(access).await;
-    assert_eq!(first_claims["sub"], id.to_string());
-    let (status, renewed) = request(
-        container.clone(),
-        "/api/v1/auth/refresh",
-        json!({"refresh_token":refresh}).to_string(),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(renewed.as_object().unwrap().len(), 1);
-    assert_eq!(
-        protect(renewed["access_token"].as_str().unwrap()).await["sid"],
-        first_claims["sid"]
-    );
-    let (status, _) = request(
-        container.clone(),
-        "/api/v1/auth/logout",
-        json!({"refresh_token":refresh}).to_string(),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(protect(access).await, first_claims);
-    let (status, _) = request(
-        container.clone(),
-        "/api/v1/auth/refresh",
-        json!({"refresh_token":refresh}).to_string(),
-    )
-    .await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    (container, created, id)
+}
 
-    let account = container
-        .local_login
-        .execute(
-            &container.database,
-            usecase::Command {
-                email: "User@example.com".into(),
-                password: " secret ".into(),
-            },
+#[tokio::test]
+#[ignore = "requires PostgreSQL and TLAB_TEST_DATABASE_URL"]
+async fn login_refresh_logout_http_flow() {
+    isolated(|url| async move {
+        let (container, created, id) = fixture(url).await;
+        let (status, body) = login(container.clone(), " user@EXAMPLE.com ", " secret ").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["account_id"], created["account_id"]);
+        assert_eq!(body["status"], created["status"]);
+        assert!(body["access_token"].is_string());
+        assert!(body["refresh_token"].is_string());
+        let access = body["access_token"].as_str().unwrap();
+        let refresh = body["refresh_token"].as_str().unwrap();
+        async fn protected(claims: crate::auth::token::AccessClaims) -> axum::Json<Value> {
+            axum::Json(json!({"sid": claims.sid, "sub": claims.sub}))
+        }
+        let router = crate::auth::router()
+            .route("/protected", axum::routing::get(protected))
+            .with_state(container.clone());
+        let protect = |token: &str| {
+            let router = router.clone();
+            let token = token.to_owned();
+            async move {
+                let response = router
+                    .oneshot(
+                        Request::get("/protected")
+                            .header("authorization", format!("Bearer {token}"))
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::OK);
+                serde_json::from_slice::<Value>(
+                    &to_bytes(response.into_body(), 4096).await.unwrap(),
+                )
+                .unwrap()
+            }
+        };
+        let first_claims = protect(access).await;
+        assert_eq!(first_claims["sub"], id.to_string());
+        let (status, renewed) = request(
+            container.clone(),
+            "/api/v1/auth/refresh",
+            json!({"refresh_token":refresh}).to_string(),
         )
-        .await
-        .unwrap();
-    assert_eq!(account.id, id);
-    assert_eq!(account.nickname, "member");
-    assert_eq!(
-        account.status,
-        crate::auth::entity::AccountStatus::Registered
-    );
-    assert!(account.withdrawn_at.is_none());
-    assert_eq!(snapshot, self::snapshot(&container).await);
-    let dir = tempfile::tempdir().unwrap();
-    let material = tlab::keyfiles::Ed25519KeyFile {
-        private_key: dir.path().join("private.pem"),
-        public_key: dir.path().join("public.pem"),
-        generate_if_missing: true,
-    }
-    .load()
-    .unwrap();
-    let issuer =
-        crate::auth::token::AccessIssuer::new(&material, "test-issuer", "test-audience").unwrap();
-    let verifier = crate::auth::token::AccessVerifier::new(
-        material.public_key_pem(),
-        "test-issuer",
-        "test-audience",
-    )
-    .unwrap();
-    let mut sessions = Vec::new();
-    for _ in 0..2 {
-        let result = container
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(renewed.as_object().unwrap().len(), 1);
+        assert_eq!(
+            protect(renewed["access_token"].as_str().unwrap()).await["sid"],
+            first_claims["sid"]
+        );
+        let (status, _) = request(
+            container.clone(),
+            "/api/v1/auth/logout",
+            json!({"refresh_token":refresh}).to_string(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(protect(access).await, first_claims);
+        let (status, _) = request(
+            container.clone(),
+            "/api/v1/auth/refresh",
+            json!({"refresh_token":refresh}).to_string(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL and TLAB_TEST_DATABASE_URL"]
+async fn login_returns_account_without_mutating_it() {
+    isolated(|url| async move {
+        let (container, _created, id) = fixture(url).await;
+        let snapshot = snapshot(&container).await;
+        let account = container
             .local_login
-            .execute_with_tokens(
+            .execute(
                 &container.database,
                 usecase::Command {
                     email: "User@example.com".into(),
                     password: " secret ".into(),
                 },
-                &issuer,
             )
             .await
             .unwrap();
-        let now = sqlx::types::time::OffsetDateTime::now_utc().unix_timestamp() as u64;
-        let claims = verifier.verify(result.access.expose_secret(), now).unwrap();
-        assert_eq!(claims.sub, id.to_string());
-        assert_eq!(claims.user["nickname"], "member");
-        assert!(claims.user.get("roles").is_none());
-        assert_eq!(claims.exp - claims.iat, 600);
-        let mut conn = container.database.conn().await.unwrap();
-        let row = crate::auth::repository::refresh_token::find_by_hash(
-            &mut conn.context(),
-            &result.refresh.hash(),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-        assert_eq!(row.session_id, claims.sid);
-        assert_eq!(row.token_hash, result.refresh.hash().as_bytes());
-        assert_ne!(row.token_hash, result.refresh.expose_secret().as_bytes());
-        assert_eq!(row.created_at.unix_timestamp(), claims.iat as i64);
-        assert_eq!(row.session_created_at, row.created_at);
+        assert_eq!(account.id, id);
+        assert_eq!(account.nickname, "member");
         assert_eq!(
-            (row.expires_at - row.created_at).whole_seconds(),
-            168 * 3600
+            account.status,
+            crate::auth::entity::AccountStatus::Registered
         );
-        assert_eq!(row.session_expires_at, row.expires_at);
-        sessions.push((claims.sid, result.refresh.expose_secret().to_owned()));
-    }
-    assert_ne!(sessions[0].0, sessions[1].0);
-    assert_ne!(sessions[0].1, sessions[1].1);
-    let command = || usecase::Command {
-        email: "User@example.com".into(),
-        password: " secret ".into(),
-    };
-    let failed = container
-        .local_login
-        .execute_with_tokens(
-            &container.database,
-            command(),
-            &crate::auth::token::AccessIssuer::with_invalid_signing_key(),
+        assert!(account.withdrawn_at.is_none());
+        assert_eq!(snapshot, self::snapshot(&container).await);
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL and TLAB_TEST_DATABASE_URL"]
+async fn login_issues_independent_sessions() {
+    isolated(|url| async move {
+        let (container, _created, id) = fixture(url).await;
+        let dir = tempfile::tempdir().unwrap();
+        let material = tlab::keyfiles::Ed25519KeyFile {
+            private_key: dir.path().join("private.pem"),
+            public_key: dir.path().join("public.pem"),
+            generate_if_missing: true,
+        }
+        .load()
+        .unwrap();
+        let issuer =
+            crate::auth::token::AccessIssuer::new(&material, "test-issuer", "test-audience")
+                .unwrap();
+        let verifier = crate::auth::token::AccessVerifier::new(
+            material.public_key_pem(),
+            "test-issuer",
+            "test-audience",
         )
-        .await;
-    assert!(matches!(failed, Err(Error::Internal(ref e)) if e.stage == "access_sign"));
-    for (trigger, stage) in [
-        (
-            "CREATE TRIGGER fail_login BEFORE INSERT ON tlab_auth_refresh_token FOR EACH ROW EXECUTE FUNCTION fail_login()",
-            "refresh_insert",
-        ),
-        (
-            "CREATE CONSTRAINT TRIGGER fail_login AFTER INSERT ON tlab_auth_refresh_token DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fail_login()",
-            "login_commit",
-        ),
-    ] {
-        let mut conn = container.database.conn().await.unwrap();
-        sqlx::raw_sql("CREATE OR REPLACE FUNCTION fail_login() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected failure'; END $$")
-            .execute(conn.context().backend()).await.unwrap();
-        sqlx::raw_sql(trigger)
-            .execute(conn.context().backend())
+        .unwrap();
+        let mut sessions = Vec::new();
+        for _ in 0..2 {
+            let result = container
+                .local_login
+                .execute_with_tokens(
+                    &container.database,
+                    usecase::Command {
+                        email: "User@example.com".into(),
+                        password: " secret ".into(),
+                    },
+                    &issuer,
+                )
+                .await
+                .unwrap();
+            let now = sqlx::types::time::OffsetDateTime::now_utc().unix_timestamp() as u64;
+            let claims = verifier.verify(result.access.expose_secret(), now).unwrap();
+            assert_eq!(claims.sub, id.to_string());
+            assert_eq!(claims.user["nickname"], "member");
+            assert!(claims.user.get("roles").is_none());
+            assert_eq!(claims.exp - claims.iat, 600);
+            let mut conn = container.database.conn().await.unwrap();
+            let row = crate::auth::repository::refresh_token::find_by_hash(
+                &mut conn.context(),
+                &result.refresh.hash(),
+            )
             .await
+            .unwrap()
             .unwrap();
-        drop(conn);
+            assert_eq!(row.session_id, claims.sid);
+            assert_eq!(row.token_hash, result.refresh.hash().as_bytes());
+            assert_ne!(row.token_hash, result.refresh.expose_secret().as_bytes());
+            assert_eq!(row.created_at.unix_timestamp(), claims.iat as i64);
+            assert_eq!(row.session_created_at, row.created_at);
+            assert_eq!(
+                (row.expires_at - row.created_at).whole_seconds(),
+                168 * 3600
+            );
+            assert_eq!(row.session_expires_at, row.expires_at);
+            sessions.push((claims.sid, result.refresh.expose_secret().to_owned()));
+        }
+        assert_ne!(sessions[0].0, sessions[1].0);
+        assert_ne!(sessions[0].1, sessions[1].1);
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL and TLAB_TEST_DATABASE_URL"]
+async fn login_signing_insert_and_commit_failures() {
+    isolated(|url| async move {
+        let (container, _created, _id) = fixture(url).await;
+        let dir = tempfile::tempdir().unwrap();
+        let material = tlab::keyfiles::Ed25519KeyFile {
+            private_key: dir.path().join("private.pem"),
+            public_key: dir.path().join("public.pem"),
+            generate_if_missing: true,
+        }
+        .load()
+        .unwrap();
+        let issuer =
+            crate::auth::token::AccessIssuer::new(&material, "test-issuer", "test-audience").unwrap();
+        let _verifier = crate::auth::token::AccessVerifier::new(
+            material.public_key_pem(),
+            "test-issuer",
+            "test-audience",
+        )
+        .unwrap();
+        let command = || usecase::Command {
+            email: "User@example.com".into(),
+            password: " secret ".into(),
+        };
         let failed = container
             .local_login
-            .execute_with_tokens(&container.database, command(), &issuer)
+            .execute_with_tokens(
+                &container.database,
+                command(),
+                &crate::auth::token::AccessIssuer::with_invalid_signing_key(),
+            )
             .await;
-        assert!(matches!(failed, Err(Error::Internal(ref e)) if e.stage == stage));
+        assert!(matches!(failed, Err(Error::Internal(ref e)) if e.stage == "access_sign"));
+        for (trigger, stage) in [
+            (
+                "CREATE TRIGGER fail_login BEFORE INSERT ON tlab_auth_refresh_token FOR EACH ROW EXECUTE FUNCTION fail_login()",
+                "refresh_insert",
+            ),
+            (
+                "CREATE CONSTRAINT TRIGGER fail_login AFTER INSERT ON tlab_auth_refresh_token DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fail_login()",
+                "login_commit",
+            ),
+        ] {
+            let mut conn = container.database.conn().await.unwrap();
+            sqlx::raw_sql("CREATE OR REPLACE FUNCTION fail_login() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected failure'; END $$")
+                .execute(conn.context().backend()).await.unwrap();
+            sqlx::raw_sql(trigger)
+                .execute(conn.context().backend())
+                .await
+                .unwrap();
+            drop(conn);
+            let failed = container
+                .local_login
+                .execute_with_tokens(&container.database, command(), &issuer)
+                .await;
+            assert!(matches!(failed, Err(Error::Internal(ref e)) if e.stage == stage));
+            let mut conn = container.database.conn().await.unwrap();
+            let count: i64 = sqlx::query_scalar("SELECT count(*) FROM tlab_auth_refresh_token")
+                .fetch_one(conn.context().backend())
+                .await
+                .unwrap();
+            assert_eq!(count, 0);
+            sqlx::raw_sql("DROP TRIGGER fail_login ON tlab_auth_refresh_token")
+                .execute(conn.context().backend())
+                .await
+                .unwrap();
+        }
+    }).await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL and TLAB_TEST_DATABASE_URL"]
+async fn login_rechecks_account_after_withdrawal_lock() {
+    isolated(|url| async move {
+        let (container, _created, id) = fixture(url).await;
+        let dir = tempfile::tempdir().unwrap();
+        tlab::keyfiles::Ed25519KeyFile {
+            private_key: dir.path().join("private.pem"),
+            public_key: dir.path().join("public.pem"),
+            generate_if_missing: true,
+        }
+        .load()
+        .unwrap();
+        // A withdrawal owns the account lock while login has already verified the password.
+        let mut withdrawal = container.database.tx().await.unwrap();
+        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(withdrawal.context().backend())
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE tlab_account SET status='WITHDRAWN', withdrawn_at=CURRENT_TIMESTAMP WHERE id=$1",
+        )
+        .bind(id)
+        .execute(withdrawal.context().backend())
+        .await
+        .unwrap();
+        let login_container = container.clone();
+        let login_material = tlab::keyfiles::Ed25519KeyFile {
+            private_key: dir.path().join("private.pem"),
+            public_key: dir.path().join("public.pem"),
+            generate_if_missing: false,
+        }
+        .load()
+        .unwrap();
+        let waiting = tokio::spawn(async move {
+            let issuer =
+                crate::auth::token::AccessIssuer::new(&login_material, "test-issuer", "test-audience")
+                    .unwrap();
+            login_container
+                .local_login
+                .execute_with_tokens(
+                    &login_container.database,
+                    usecase::Command {
+                        email: "User@example.com".into(),
+                        password: " secret ".into(),
+                    },
+                    &issuer,
+                )
+                .await
+        });
+        timeout(Duration::from_secs(10), async {
+            loop {
+                let mut conn = container.database.conn().await.unwrap();
+                let blocked: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid)) AND query LIKE '%FOR UPDATE%')")
+                    .bind(pid).fetch_one(conn.context().backend()).await.unwrap();
+                if blocked { break; }
+                tokio::task::yield_now().await;
+            }
+        }).await.unwrap();
+        withdrawal.commit().await.unwrap();
+        assert!(matches!(
+            waiting.await.unwrap(),
+            Err(Error::AccountUnavailable)
+        ));
         let mut conn = container.database.conn().await.unwrap();
         let count: i64 = sqlx::query_scalar("SELECT count(*) FROM tlab_auth_refresh_token")
             .fetch_one(conn.context().backend())
             .await
             .unwrap();
-        assert_eq!(count, 3);
-        sqlx::raw_sql("DROP TRIGGER fail_login ON tlab_auth_refresh_token")
-            .execute(conn.context().backend())
-            .await
-            .unwrap();
-    }
-    // A withdrawal owns the account lock while login has already verified the password.
-    let mut withdrawal = container.database.tx().await.unwrap();
-    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(withdrawal.context().backend())
-        .await
-        .unwrap();
-    sqlx::query(
-        "UPDATE tlab_account SET status='WITHDRAWN', withdrawn_at=CURRENT_TIMESTAMP WHERE id=$1",
-    )
-    .bind(id)
-    .execute(withdrawal.context().backend())
-    .await
-    .unwrap();
-    let login_container = container.clone();
-    let login_material = tlab::keyfiles::Ed25519KeyFile {
-        private_key: dir.path().join("private.pem"),
-        public_key: dir.path().join("public.pem"),
-        generate_if_missing: false,
-    }
-    .load()
-    .unwrap();
-    let waiting = tokio::spawn(async move {
-        let issuer =
-            crate::auth::token::AccessIssuer::new(&login_material, "test-issuer", "test-audience")
-                .unwrap();
-        login_container
-            .local_login
-            .execute_with_tokens(
-                &login_container.database,
-                usecase::Command {
-                    email: "User@example.com".into(),
-                    password: " secret ".into(),
-                },
-                &issuer,
-            )
-            .await
-    });
-    timeout(Duration::from_secs(10), async {
-        loop {
-            let mut conn = container.database.conn().await.unwrap();
-            let blocked: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid)) AND query LIKE '%FOR UPDATE%')")
-                .bind(pid).fetch_one(conn.context().backend()).await.unwrap();
-            if blocked { break; }
-            tokio::task::yield_now().await;
-        }
-    }).await.unwrap();
-    withdrawal.commit().await.unwrap();
-    assert!(matches!(
-        waiting.await.unwrap(),
-        Err(Error::AccountUnavailable)
-    ));
-    let mut conn = container.database.conn().await.unwrap();
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM tlab_auth_refresh_token")
-        .fetch_one(conn.context().backend())
-        .await
-        .unwrap();
-    assert_eq!(count, 3);
-    sqlx::query("UPDATE tlab_account SET status='REGISTERED', withdrawn_at=NULL WHERE id=$1")
-        .bind(id)
-        .execute(conn.context().backend())
-        .await
-        .unwrap();
-    drop(conn);
-    let wrong = login(container.clone(), "User@example.com", "secret").await;
-    let missing = login(
-        container.clone(),
-        "missing@example.com",
-        "local-login-dummy-password",
-    )
-    .await;
-    assert_eq!(wrong, missing);
-    assert_eq!(wrong.0, StatusCode::UNAUTHORIZED);
-    assert_eq!(wrong.1["code"], "INVALID_CREDENTIALS");
+        assert_eq!(count, 0);
+    }).await;
+}
 
-    // The same process-wide permits are consumed by both request handlers.
-    let permits = container
-        .passwd_hash_slots
-        .clone()
-        .acquire_many_owned(2)
-        .await
-        .unwrap();
-    assert_eq!(
-        login(container.clone(), "User@example.com", " secret ")
-            .await
-            .0,
-        StatusCode::SERVICE_UNAVAILABLE
-    );
-    assert_eq!(
-        login(container.clone(), "missing@example.com", "secret")
-            .await
-            .0,
-        StatusCode::SERVICE_UNAVAILABLE
-    );
-    assert_eq!(
-        request(
+#[tokio::test]
+#[ignore = "requires PostgreSQL and TLAB_TEST_DATABASE_URL"]
+async fn wrong_password_and_missing_account_are_indistinguishable() {
+    isolated(|url| async move {
+        let (container, _created, _id) = fixture(url).await;
+        let wrong = login(container.clone(), "User@example.com", "secret").await;
+        let missing = login(
             container.clone(),
-            "/api/v1/accounts/local",
-            json!({"nickname":"m", "email":"busy@example.com", "password":"secret"}).to_string()
+            "missing@example.com",
+            "local-login-dummy-password",
         )
-        .await
-        .0,
-        StatusCode::SERVICE_UNAVAILABLE
-    );
-    for (payload, code) in [
-        (
-            json!({"email":"bad", "password":"secret"}).to_string(),
-            "INVALID_EMAIL",
-        ),
-        (
-            json!({"email":"User@example.com", "password":""}).to_string(),
-            "PASSWORD_REQUIRED",
-        ),
-        (
-            json!({"email":"User@example.com", "password":"secret", "status":"ACTIVE"}).to_string(),
-            "INVALID_REQUEST",
-        ),
-        ("{}".into(), "INVALID_REQUEST"),
-        (
-            "{\"password\":\"sensitive-input\"".into(),
-            "INVALID_REQUEST",
-        ),
-    ] {
-        let (status, body) = request(container.clone(), "/api/v1/auth/local", payload).await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert_eq!(body["code"], code);
-        assert!(!body.to_string().contains("sensitive-input"));
-    }
-    let (status, body) = request(
-        container.clone(),
-        "/api/v1/auth/local",
-        json!({"email":"User@example.com", "password":"x".repeat(2 * 1024 * 1024)}).to_string(),
-    )
+        .await;
+        assert_eq!(wrong, missing);
+        assert_eq!(wrong.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(wrong.1["code"], "INVALID_CREDENTIALS");
+    })
     .await;
-    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
-    assert_eq!(body["code"], "INVALID_REQUEST");
-    drop(permits);
+}
 
-    for (state, expected) in [
-        ("ACTIVE", StatusCode::OK),
-        ("WITHDRAWN", StatusCode::FORBIDDEN),
-    ] {
-        let mut conn = container.database.conn().await.unwrap();
-        sqlx::query("UPDATE tlab_account SET status = $1, withdrawn_at = CASE WHEN $1 = 'WITHDRAWN' THEN CURRENT_TIMESTAMP ELSE NULL END WHERE id = $2")
-            .bind(state).bind(id).execute(conn.context().backend()).await.unwrap();
-        drop(conn);
-        let before = self::snapshot(&container).await;
-        let (status, body) = login(container.clone(), "User@example.com", " secret ").await;
-        assert_eq!(status, expected);
-        if status == StatusCode::OK {
-            assert_eq!(body["status"], state);
-        } else {
-            assert_eq!(body["code"], "ACCOUNT_UNAVAILABLE");
-        }
-        assert_eq!(
-            login(container.clone(), "User@example.com", "wrong").await,
-            wrong
-        );
-        assert_eq!(before, self::snapshot(&container).await);
-    }
-    for hash in [
-        None,
-        Some("broken-phc"),
-        Some("$pbkdf2-sha256$i=1,l=32$c2FsdA$aGFzaA"),
-    ] {
-        let mut conn = container.database.conn().await.unwrap();
-        sqlx::query("UPDATE tlab_account_identity SET password_hash = $1 WHERE account_id = $2")
-            .bind(hash)
-            .bind(id)
-            .execute(conn.context().backend())
+#[tokio::test]
+#[ignore = "requires PostgreSQL and TLAB_TEST_DATABASE_URL"]
+async fn busy_and_invalid_http_requests() {
+    isolated(|url| async move {
+        let (container, _created, _id) = fixture(url).await;
+        // The same process-wide permits are consumed by both request handlers.
+        let permits = container
+            .passwd_hash_slots
+            .clone()
+            .acquire_many_owned(2)
             .await
             .unwrap();
-        drop(conn);
         assert_eq!(
             login(container.clone(), "User@example.com", " secret ")
                 .await
                 .0,
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(
+            login(container.clone(), "missing@example.com", "secret")
+                .await
+                .0,
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(
+            request(
+                container.clone(),
+                "/api/v1/accounts/local",
+                json!({"nickname":"m", "email":"busy@example.com", "password":"secret"})
+                    .to_string()
+            )
+            .await
+            .0,
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        for (payload, code) in [
+            (
+                json!({"email":"bad", "password":"secret"}).to_string(),
+                "INVALID_EMAIL",
+            ),
+            (
+                json!({"email":"User@example.com", "password":""}).to_string(),
+                "PASSWORD_REQUIRED",
+            ),
+            (
+                json!({"email":"User@example.com", "password":"secret", "status":"ACTIVE"})
+                    .to_string(),
+                "INVALID_REQUEST",
+            ),
+            ("{}".into(), "INVALID_REQUEST"),
+            (
+                "{\"password\":\"sensitive-input\"".into(),
+                "INVALID_REQUEST",
+            ),
+        ] {
+            let (status, body) = request(container.clone(), "/api/v1/auth/local", payload).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert_eq!(body["code"], code);
+            assert!(!body.to_string().contains("sensitive-input"));
+        }
+        let (status, body) = request(
+            container.clone(),
+            "/api/v1/auth/local",
+            json!({"email":"User@example.com", "password":"x".repeat(2 * 1024 * 1024)}).to_string(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(body["code"], "INVALID_REQUEST");
+        drop(permits);
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL and TLAB_TEST_DATABASE_URL"]
+async fn account_state_and_wrong_password_contract() {
+    isolated(|url| async move {
+        let (container, _created, id) = fixture(url).await;
+        let wrong = login(container.clone(), "User@example.com", "wrong").await;
+        for (state, expected) in [
+            ("ACTIVE", StatusCode::OK),
+            ("WITHDRAWN", StatusCode::FORBIDDEN),
+        ] {
+            let mut conn = container.database.conn().await.unwrap();
+            sqlx::query("UPDATE tlab_account SET status = $1, withdrawn_at = CASE WHEN $1 = 'WITHDRAWN' THEN CURRENT_TIMESTAMP ELSE NULL END WHERE id = $2")
+                .bind(state).bind(id).execute(conn.context().backend()).await.unwrap();
+            drop(conn);
+            let before = self::snapshot(&container).await;
+            let (status, body) = login(container.clone(), "User@example.com", " secret ").await;
+            assert_eq!(status, expected);
+            if status == StatusCode::OK {
+                assert_eq!(body["status"], state);
+            } else {
+                assert_eq!(body["code"], "ACCOUNT_UNAVAILABLE");
+            }
+            assert_eq!(
+                login(container.clone(), "User@example.com", "wrong").await,
+                wrong
+            );
+            assert_eq!(before, self::snapshot(&container).await);
+        }
+    }).await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL and TLAB_TEST_DATABASE_URL"]
+async fn invalid_password_hash_and_nonlocal_identity() {
+    isolated(|url| async move {
+        let (container, _created, id) = fixture(url).await;
+        let wrong = login(container.clone(), "User@example.com", "wrong").await;
+        for hash in [
+            None,
+            Some("broken-phc"),
+            Some("$pbkdf2-sha256$i=1,l=32$c2FsdA$aGFzaA"),
+        ] {
+            let mut conn = container.database.conn().await.unwrap();
+            sqlx::query("UPDATE tlab_account_identity SET password_hash = $1 WHERE account_id = $2")
+                .bind(hash)
+                .bind(id)
+                .execute(conn.context().backend())
+                .await
+                .unwrap();
+            drop(conn);
+            assert_eq!(
+                login(container.clone(), "User@example.com", " secret ")
+                    .await
+                    .0,
+                StatusCode::INTERNAL_SERVER_ERROR
+            );
+        }
+        let mut conn = container.database.conn().await.unwrap();
+        sqlx::query("UPDATE tlab_account_identity SET provider = 'GOOGLE', provider_subject = 'external-user' WHERE account_id = $1")
+            .bind(id).execute(conn.context().backend()).await.unwrap();
+        drop(conn);
+        assert_eq!(
+            login(container.clone(), "User@example.com", " secret ").await,
+            wrong
+        );
+
+    }).await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL and TLAB_TEST_DATABASE_URL"]
+async fn storage_failure_is_internal() {
+    isolated(|url| async move {
+        let (container, _created, _id) = fixture(url).await;
+        // A missing table is a storage failure, never an authentication failure.
+        let mut conn = container.database.conn().await.unwrap();
+        sqlx::query("ALTER TABLE tlab_account_identity RENAME TO unavailable_identity")
+            .execute(conn.context().backend())
+            .await
+            .unwrap();
+        drop(conn);
+        assert_eq!(
+            login(container, "User@example.com", " secret ").await.0,
             StatusCode::INTERNAL_SERVER_ERROR
         );
-    }
-    let mut conn = container.database.conn().await.unwrap();
-    sqlx::query("UPDATE tlab_account_identity SET provider = 'GOOGLE', provider_subject = 'external-user' WHERE account_id = $1")
-        .bind(id).execute(conn.context().backend()).await.unwrap();
-    drop(conn);
-    assert_eq!(
-        login(container.clone(), "User@example.com", " secret ").await,
-        wrong
-    );
-
-    // A missing table is a storage failure, never an authentication failure.
-    let mut conn = container.database.conn().await.unwrap();
-    sqlx::query("ALTER TABLE tlab_account_identity RENAME TO unavailable_identity")
-        .execute(conn.context().backend())
-        .await
-        .unwrap();
-    drop(conn);
-    assert_eq!(
-        login(container, "User@example.com", " secret ").await.0,
-        StatusCode::INTERNAL_SERVER_ERROR
-    );
+    })
+    .await;
 }
 
 async fn snapshot(container: &Container) -> String {
     let mut conn = container.database.conn().await.unwrap();
     sqlx::query_scalar("SELECT row_to_json(a)::text || row_to_json(i)::text FROM tlab_account a JOIN tlab_account_identity i ON i.account_id = a.id")
-        .fetch_one(conn.context().backend()).await.unwrap()
+            .fetch_one(conn.context().backend()).await.unwrap()
 }
