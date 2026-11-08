@@ -650,3 +650,129 @@ fn insecure_development_cookies_require_http_opt_in_and_have_separate_names() {
         "HTTP opt-in must not weaken an HTTPS origin"
     );
 }
+
+#[test]
+fn access_cookie_limit_counts_the_entire_serialized_value_in_bytes() {
+    // Claims only supply the expiry; transport sizing is independent of signing.
+    let claims = AccessClaims {
+        iss: "issuer".into(),
+        aud: "audience".into(),
+        sub: "1".into(),
+        sid: uuid::Uuid::new_v4(),
+        iat: now_seconds(),
+        exp: now_seconds() + 600,
+        user: Default::default(),
+    };
+    for config in [
+        Config::default(),
+        Config {
+            origin: "http://localhost:8080".into(),
+            allow_insecure_http: true,
+        },
+    ] {
+        let overhead = access_cookie(&config, "", &claims)
+            .unwrap()
+            .to_string()
+            .len();
+        let exact = "a".repeat(4_000 - overhead);
+        let cookie = access_cookie(&config, &exact, &claims).unwrap();
+        assert_eq!(cookie.to_string().len(), 4_000);
+        assert!(access_cookie(&config, &(exact + "a"), &claims).is_err());
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL schema"]
+async fn encoded_auth_cookie_names_are_rejected_before_authentication() {
+    isolated(|database| async move {
+        let container = container(database).await;
+        let token = access(&container, "attacker", uuid::Uuid::new_v4(), now_seconds());
+        let mut held = Vec::new();
+        for _ in 0..4 {
+            held.push(container.database.conn().await.unwrap());
+        }
+        let app = app(container);
+        for alias in [
+            "__Host%2Dtlab_access",
+            "%5F_Host-tlab_access",
+            "__Host%2Dtlab_refresh",
+            "%5F_Host-tlab_refresh",
+        ] {
+            for mixed in [false, true] {
+                let mut cookie = format!("{alias}={}", token.expose_secret());
+                if mixed {
+                    cookie.push_str(&format!("; {ACCESS}={}", token.expose_secret()));
+                }
+                let response = tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    app.clone().oneshot(request("GET", "/web/auth/me", &cookie)),
+                )
+                .await
+                .unwrap()
+                .unwrap();
+                assert_eq!(
+                    response.status(),
+                    StatusCode::UNAUTHORIZED,
+                    "{alias}, mixed={mixed}"
+                );
+                assert_private(&response);
+                assert_cleared(&response);
+            }
+        }
+        drop(held);
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL schema"]
+async fn oversized_web_login_rolls_back_and_refresh_preserves_existing_session() {
+    isolated(|database| async move {
+        let container = container(database).await;
+        let app = app(container.clone());
+        for (index, nickname) in ["a".repeat(3_000), "가".repeat(1_000)].into_iter().enumerate() {
+            let email = format!("large-{index}@example.test");
+            let credentials = json!({"email": email, "password": "secret"});
+            let send = |path: &str, payload: Value| {
+                let req = HttpRequest::post(path)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::ORIGIN, container.config.auth.web.origin.as_str())
+                    .header(header::COOKIE, "other=preserve")
+                    .body(Body::from(payload.to_string())).unwrap();
+                app.clone().oneshot(req)
+            };
+            assert_eq!(send("/api/v1/accounts/local", json!({"email": email, "password": "secret", "nickname": nickname})).await.unwrap().status(), StatusCode::CREATED);
+            let count = async || {
+                let mut conn = container.database.conn().await.unwrap();
+                sqlx::query_scalar::<_, i64>("SELECT count(*) FROM tlab_auth_refresh_token")
+                    .fetch_one(conn.context().backend()).await.unwrap()
+            };
+            let before = count().await;
+            let response = send("/web/auth/local", credentials.clone()).await.unwrap();
+            assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+            assert_private(&response);
+            assert!(set_cookies(&response).is_empty());
+            assert_eq!(body(response).await["code"], "AUTH_COOKIE_TOO_LARGE");
+            assert_eq!(count().await, before, "failed web login must not persist Refresh");
+
+            // JSON APIs retain their existing size contract and can create this session.
+            let response = send("/api/v1/auth/local", credentials).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let tokens = body(response).await;
+            let refresh = tokens["refresh_token"].as_str().unwrap();
+            let snapshot = async || {
+                let mut conn = container.database.conn().await.unwrap();
+                sqlx::query_scalar::<_, String>("SELECT row_to_json(r)::text FROM tlab_auth_refresh_token r WHERE token_hash=$1")
+                    .bind(super::super::token::RefreshHash::of(refresh).as_bytes().as_slice())
+                    .fetch_one(conn.context().backend()).await.unwrap()
+            };
+            let before = snapshot().await;
+            let response = app.clone().oneshot(request("GET", "/web/auth/me", &format!("{REFRESH}={refresh}"))).await.unwrap();
+            assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+            assert_private(&response);
+            assert!(set_cookies(&response).is_empty());
+            assert_eq!(body(response).await["code"], "AUTH_COOKIE_TOO_LARGE");
+            assert_eq!(snapshot().await, before);
+        }
+    }).await;
+}

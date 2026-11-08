@@ -73,6 +73,7 @@ impl IntoResponse for Error {
                 None,
                 "account is unavailable",
             ),
+            Error::TokenResponseTooLarge => crate::auth::web::cookie_too_large(),
             Error::Busy => {
                 tracing::warn!(
                     operation = "login_local",
@@ -105,24 +106,37 @@ pub(in crate::auth) async fn web_login(
         Err(error) => response::invalid_json(error),
         Ok(Json(command)) => match container
             .local_login
-            .execute_with_tokens(&container.database, command, &container.access_issuer)
+            .execute_with_prepared_tokens(
+                &container.database,
+                command,
+                &container.access_issuer,
+                |tokens| {
+                    let now = sqlx::types::time::OffsetDateTime::now_utc().unix_timestamp() as u64;
+                    let claims = container
+                        .access_verifier
+                        .verify(tokens.access.expose_secret(), now)
+                        .map_err(|_| {
+                            Error::Internal(crate::app::error::InternalFailure {
+                                stage: "issued_access_verify",
+                                cause: tlab::Error::IllegalState(
+                                    "issued access verification failed".into(),
+                                ),
+                            })
+                        })?;
+                    web::login_cookies(&container.config.auth.web, tokens, &claims)
+                        .map_err(|_| Error::TokenResponseTooLarge)
+                },
+            )
             .await
         {
-            Ok(tokens) => {
-                let now = sqlx::types::time::OffsetDateTime::now_utc().unix_timestamp() as u64;
-                match container
-                    .access_verifier
-                    .verify(tokens.access.expose_secret(), now)
-                {
-                    Ok(claims) => {
-                        web::set_login(&cookies, &container.config.auth.web, &tokens, &claims);
-                        response::success(
-                            StatusCode::OK,
-                            serde_json::json!({"account_id": tokens.account.id, "status": tokens.account.status}),
-                        )
-                    }
-                    Err(_) => response::internal_error("issued access verification failed"),
+            Ok((tokens, prepared)) => {
+                for cookie in prepared {
+                    cookies.add(cookie);
                 }
+                response::success(
+                    StatusCode::OK,
+                    serde_json::json!({"account_id": tokens.account.id, "status": tokens.account.status}),
+                )
             }
             Err(error) => error.into_response(),
         },

@@ -25,7 +25,7 @@ pub struct Command {
     pub password: String,
 }
 
-/// Secrets are exposed only to the caller after the transaction commits.
+/// Token responses are returned only after the transaction commits.
 #[allow(dead_code, reason = "Token response is connected in API step 6")]
 pub struct LoginTokens {
     pub account: Account,
@@ -39,6 +39,7 @@ pub enum Error {
     InvalidCredentials,
     AccountUnavailable,
     Busy,
+    TokenResponseTooLarge,
     Internal(InternalFailure),
 }
 
@@ -66,6 +67,20 @@ impl LocalLogin {
         command: Command,
         issuer: &AccessIssuer,
     ) -> Result<LoginTokens, Error> {
+        self.execute_with_prepared_tokens(database, command, issuer, |_| Ok(()))
+            .await
+            .map(|(tokens, ())| tokens)
+    }
+
+    /// The transport prepares and validates its response before issuance commits.
+    /// On preparation failure the transaction rolls back without returning secrets.
+    pub(in crate::auth) async fn execute_with_prepared_tokens<T>(
+        &self,
+        database: &Database,
+        command: Command,
+        issuer: &AccessIssuer,
+        prepare: impl FnOnce(&LoginTokens) -> Result<T, Error>,
+    ) -> Result<(LoginTokens, T), Error> {
         let authenticated = self.execute(database, command).await?;
         let mut tx = database
             .tx()
@@ -110,14 +125,24 @@ impl LocalLogin {
         let access = issuer
             .issue(&account.id.to_string(), sid, user, timestamp)
             .map_err(|e| Error::internal("access_sign", tlab::Error::Internal(e.into())))?;
-        tx.commit()
-            .await
-            .map_err(|e| Error::internal("login_commit", e))?;
-        Ok(LoginTokens {
+        let tokens = LoginTokens {
             account,
             access,
             refresh,
-        })
+        };
+        let prepared = match prepare(&tokens) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                tx.rollback()
+                    .await
+                    .map_err(|e| Error::internal("login_rollback", e))?;
+                return Err(error);
+            }
+        };
+        tx.commit()
+            .await
+            .map_err(|e| Error::internal("login_commit", e))?;
+        Ok((tokens, prepared))
     }
     pub async fn new(hasher: Arc<dyn PasswordHasher>, slots: Arc<Semaphore>) -> tlab::Result<Self> {
         let dummy_hasher = hasher.clone();

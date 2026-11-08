@@ -25,6 +25,17 @@ use crate::app::{Container, response};
 
 pub(super) const ACCESS: &str = "__Host-tlab_access";
 pub(super) const REFRESH: &str = "__Host-tlab_refresh";
+// Include every attribute in the limit, leaving room below browser limits.
+const MAX_COOKIE_BYTES: usize = 4_000;
+
+pub(super) fn cookie_too_large() -> Response {
+    response::error(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "AUTH_COOKIE_TOO_LARGE",
+        None,
+        "authentication cookie exceeds the size limit",
+    )
+}
 
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -172,9 +183,19 @@ fn invalid_cookie_header(request: &Request, config: &Config) -> bool {
             return true;
         };
         for pair in value.split(';') {
+            let Ok(raw) = Cookie::parse(pair.trim().to_owned()) else {
+                return true;
+            };
             let Ok(parsed) = Cookie::parse_encoded(pair.trim().to_owned()) else {
                 return true;
             };
+            // Browsers enforce __Host- on the wire name, before decoding.
+            // Never let an encoded Domain cookie alias a host-only credential.
+            if (parsed.name() == config.access_name() || parsed.name() == config.refresh_name())
+                && raw.name() != parsed.name()
+            {
+                return true;
+            }
             if parsed.name() == config.access_name() {
                 access += 1;
             }
@@ -221,12 +242,12 @@ async fn authenticate(
                             "issued access verification failed",
                         ));
                     };
-                    set_access(
-                        &cookies,
-                        &container.config.auth.web,
-                        access.expose_secret(),
-                        &claims,
-                    );
+                    let Ok(cookie) =
+                        access_cookie(&container.config.auth.web, access.expose_secret(), &claims)
+                    else {
+                        return no_store(cookie_too_large());
+                    };
+                    cookies.add(cookie);
                     claims
                 }
                 Err(slice::refresh_access_token::Error::InvalidRefresh) => {
@@ -262,7 +283,18 @@ fn cookie(config: &Config, name: &'static str, value: String) -> Cookie<'static>
         .same_site(SameSite::Lax)
         .build()
 }
-pub(super) fn set_access(cookies: &Cookies, config: &Config, token: &str, claims: &AccessClaims) {
+fn checked_cookie(value: Cookie<'static>) -> Result<Cookie<'static>, ()> {
+    if value.to_string().len() > MAX_COOKIE_BYTES {
+        return Err(());
+    }
+    Ok(value)
+}
+
+fn access_cookie(
+    config: &Config,
+    token: &str,
+    claims: &AccessClaims,
+) -> Result<Cookie<'static>, ()> {
     let mut value = cookie(config, config.access_name(), token.into());
     value.set_expires(
         OffsetDateTime::from_unix_timestamp(claims.exp as i64).expect("validated token timestamp"),
@@ -270,15 +302,14 @@ pub(super) fn set_access(cookies: &Cookies, config: &Config, token: &str, claims
     value.set_max_age(Duration::seconds(
         claims.exp.saturating_sub(now_seconds()).min(600) as i64,
     ));
-    cookies.add(value);
+    checked_cookie(value)
 }
-pub(super) fn set_login(
-    cookies: &Cookies,
+pub(super) fn login_cookies(
     config: &Config,
     tokens: &super::LoginTokens,
     claims: &AccessClaims,
-) {
-    set_access(cookies, config, tokens.access.expose_secret(), claims);
+) -> Result<[Cookie<'static>; 2], ()> {
+    let access = access_cookie(config, tokens.access.expose_secret(), claims)?;
     let mut value = cookie(
         config,
         config.refresh_name(),
@@ -291,7 +322,7 @@ pub(super) fn set_login(
     value.set_max_age(Duration::seconds(
         expires.saturating_sub(now_seconds()).min(604800) as i64,
     ));
-    cookies.add(value);
+    Ok([access, checked_cookie(value)?])
 }
 pub(super) fn clear(cookies: &Cookies, config: &Config) {
     // Explicit expired Set-Cookie even when the browser omitted one cookie.
