@@ -39,7 +39,6 @@ pub enum Error {
     InvalidCredentials,
     AccountUnavailable,
     Busy,
-    TokenResponseTooLarge,
     Internal(InternalFailure),
 }
 
@@ -86,19 +85,6 @@ impl LocalLogin {
         database: &Database,
         command: Command,
     ) -> Result<LoginTokens, Error> {
-        self.execute_with_prepared_tokens(database, command, |_| Ok(()))
-            .await
-            .map(|(tokens, ())| tokens)
-    }
-
-    /// The transport prepares and validates its response before issuance commits.
-    /// On preparation failure the transaction rolls back without returning secrets.
-    pub(in crate::auth) async fn execute_with_prepared_tokens<T>(
-        &self,
-        database: &Database,
-        command: Command,
-        prepare: impl FnOnce(&LoginTokens) -> Result<T, Error>,
-    ) -> Result<(LoginTokens, T), Error> {
         let authenticated = self.execute(database, command).await?;
         let mut tx = database
             .tx()
@@ -149,19 +135,10 @@ impl LocalLogin {
             access,
             refresh,
         };
-        let prepared = match prepare(&tokens) {
-            Ok(prepared) => prepared,
-            Err(error) => {
-                tx.rollback()
-                    .await
-                    .map_err(|e| Error::internal("login_rollback", e))?;
-                return Err(error);
-            }
-        };
         tx.commit()
             .await
             .map_err(|e| Error::internal("login_commit", e))?;
-        Ok((tokens, prepared))
+        Ok(tokens)
     }
 
     pub async fn execute(&self, database: &Database, command: Command) -> Result<Account, Error> {

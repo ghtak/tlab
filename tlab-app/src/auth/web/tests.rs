@@ -728,7 +728,7 @@ async fn encoded_auth_cookie_names_are_rejected_before_authentication() {
 
 #[tokio::test]
 #[ignore = "requires isolated PostgreSQL schema"]
-async fn oversized_web_login_rolls_back_and_refresh_preserves_existing_session() {
+async fn oversized_web_login_preserves_issued_session_and_refresh_preserves_existing_session() {
     isolated(|database| async move {
         let container = container(database).await;
         let app = app(container.clone());
@@ -755,7 +755,7 @@ async fn oversized_web_login_rolls_back_and_refresh_preserves_existing_session()
             assert_private(&response);
             assert!(set_cookies(&response).is_empty());
             assert_eq!(body(response).await["code"], "AUTH_COOKIE_TOO_LARGE");
-            assert_eq!(count().await, before, "failed web login must not persist Refresh");
+            assert_eq!(count().await, before + 1, "cookie preparation must not roll back committed token issuance");
 
             // JSON APIs retain their existing size contract and can create this session.
             let response = send("/api/v1/auth/local", credentials).await.unwrap();

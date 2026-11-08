@@ -98,7 +98,7 @@ sequenceDiagram
 
 ### usecase
 
-Container가 `LocalLogin::new(hasher, password_slots).await`로 usecase 인스턴스를 생성한다. `local_login.execute(database, command) -> Result<Account, Error>`는 내부 자격증명·계정 상태 확인 API다. 현재 HTTP route는 `execute_with_tokens(database, command, issuer)`를 호출하며 이 메서드는 `execute`의 인증 결과에 토큰 발급을 연결한다. 해셔·슬롯은 가입과 같은 인스턴스를 공유하며 더미 PHC는 usecase의 비공개 필드다. 호출자는 더미 PHC를 생성하거나 전달하지 않는다. (확인)
+Container가 `LocalLogin::new(hasher, password_slots, access_issuer).await`로 usecase 인스턴스를 생성한다. `local_login.execute(database, command) -> Result<Account, Error>`는 내부 자격증명·계정 상태 확인 API다. 현재 HTTP route는 `execute_with_tokens(database, command)`를 호출하며 이 메서드는 `execute`의 인증 결과에 토큰 발급을 연결한다. 해셔·슬롯은 가입과 같은 인스턴스를 공유하며 더미 PHC는 usecase의 비공개 필드다. 호출자는 더미 PHC를 생성하거나 전달하지 않는다. (확인)
 
 | 구분 | 계약 |
 | --- | --- |
