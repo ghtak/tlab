@@ -55,6 +55,9 @@ CREATE TABLE IF NOT EXISTS tlab_auth_refresh_token (
     CONSTRAINT tlab_auth_refresh_token_hash_key UNIQUE (token_hash),
     CONSTRAINT tlab_auth_refresh_token_hash_length_check
         CHECK (octet_length(token_hash) = 32),
+    CONSTRAINT tlab_auth_refresh_token_session_uuid_v4_check
+        CHECK ((get_byte(uuid_send(session_id), 6) & 240) = 64
+           AND (get_byte(uuid_send(session_id), 8) & 192) = 128),
     CONSTRAINT tlab_auth_refresh_token_session_expiry_check
         CHECK (session_expires_at = session_created_at + INTERVAL '168 hours'),
     CONSTRAINT tlab_auth_refresh_token_created_at_check

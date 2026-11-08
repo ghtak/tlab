@@ -10,6 +10,17 @@ pub async fn find_by_id(ctx: &mut Context<'_>, id: i64) -> tlab::Result<Option<A
         .await?)
 }
 
+/// Lock inside a caller-owned transaction before locking or changing Refresh rows.
+#[allow(dead_code, reason = "Used by forthcoming authentication slices")]
+pub async fn lock_by_id(ctx: &mut Context<'_>, id: i64) -> tlab::Result<Option<Account>> {
+    Ok(
+        sqlx::query_as("SELECT * FROM tlab_account WHERE id = $1 FOR UPDATE")
+            .bind(id)
+            .fetch_optional(ctx.backend())
+            .await?,
+    )
+}
+
 pub async fn insert(ctx: &mut Context<'_>, entity: &NewAccount) -> tlab::Result<Account> {
     Ok(sqlx::query_as(
         "INSERT INTO tlab_account (nickname, status, withdrawn_at) \

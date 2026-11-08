@@ -72,3 +72,7 @@ JWT 기능을 책임별 작업 단위로 구현하고, 각 단계에서 실제 �
 구현 순서·범위·검증 계획을 대화에서 정리해 저장했다. 인증 기능 구현이나 테스트 실행은 수행하지 않았다. (확인)
 
 토큰 기반 부분을 `auth::token`에 구현했다. 기존 Ed25519 키를 재사용한 Access 발급·공개키 검증(10분·필수 클레임·user 객체), Refresh 난수·SHA-256을 제공한다. 토큰 테스트 7개 및 workspace 테스트가 통과했다. 설계·계약·명령별 결과와 후속 범위는 [PLN-AUTH-JWT-TOKEN](./jwt-token/plan.md)에 기록했다. Refresh 저장·7일 만료 판단, 로그인·HTTP 연결과 키 운영은 이번 구현에 포함하지 않았다. (확인)
+
+### Refresh 저장 구현 기록
+
+3번 Refresh 저장의 구현 범위와 실제 PostgreSQL 검증 결과는 [Refresh 저장 구현과 검증](jwt-refresh-storage/plan.md)에 기록했다. 로그인·갱신·종료 연결은 후속 범위다. (확인)

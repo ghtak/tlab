@@ -15,7 +15,7 @@ serde_json = "1"
 thiserror = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 serde = { version = "1", features = ["derive"] }
-sqlx = { version = "0.9", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls-ring-native-roots", "derive", "time"] }
+sqlx = { version = "0.9", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls-ring-native-roots", "derive", "time", "uuid"] }
 tlab = { path = "../tlab" }
 tokio = { version = "1.54.1", features = ["full"] }
 tracing = "0.1"

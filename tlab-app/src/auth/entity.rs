@@ -1,4 +1,45 @@
 use sqlx::types::time::OffsetDateTime;
+use uuid::Uuid;
+
+use super::token::RefreshHash;
+
+#[derive(Clone, Copy, sqlx::Type)]
+#[sqlx(type_name = "text", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RevokeReason {
+    Logout,
+    AccountSuspended,
+    AccountWithdrawn,
+}
+
+/// Times and session ID are supplied by the caller after obtaining its locks.
+pub struct NewRefreshToken {
+    pub session_id: Uuid,
+    pub account_id: i64,
+    pub token_hash: RefreshHash,
+    pub session_created_at: OffsetDateTime,
+    pub session_expires_at: OffsetDateTime,
+    pub created_at: OffsetDateTime,
+    pub expires_at: OffsetDateTime,
+}
+
+// No Debug or Serialize: the hash is token-derived material.
+#[derive(sqlx::FromRow)]
+#[allow(
+    dead_code,
+    reason = "Complete stored row used by later authentication slices"
+)]
+pub struct RefreshToken {
+    pub id: i64,
+    pub session_id: Uuid,
+    pub account_id: i64,
+    pub token_hash: Vec<u8>,
+    pub session_created_at: OffsetDateTime,
+    pub session_expires_at: OffsetDateTime,
+    pub created_at: OffsetDateTime,
+    pub expires_at: OffsetDateTime,
+    pub revoked_at: Option<OffsetDateTime>,
+    pub revoke_reason: Option<RevokeReason>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, sqlx::Type)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
