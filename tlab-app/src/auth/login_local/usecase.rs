@@ -11,8 +11,9 @@ use crate::{
         error::{InternalFailure, InvalidInput},
     },
     auth::{
-        entity::{Account, AccountStatus},
-        repository::{account, identity},
+        entity::{Account, AccountStatus, NewRefreshToken},
+        repository::{account, identity, refresh_token},
+        token::{AccessIssuer, AccessToken, RefreshToken},
     },
 };
 
@@ -22,6 +23,14 @@ use crate::{
 pub struct Command {
     pub email: String,
     pub password: String,
+}
+
+/// Secrets are exposed only to the caller after the transaction commits.
+#[allow(dead_code, reason = "Token response is connected in API step 6")]
+pub struct LoginTokens {
+    pub account: Account,
+    pub access: AccessToken,
+    pub refresh: RefreshToken,
 }
 
 #[derive(Debug)]
@@ -49,6 +58,70 @@ pub struct LocalLogin {
 }
 
 impl LocalLogin {
+    /// Authenticate outside the lock, then serialize issuance with account changes.
+    #[allow(dead_code, reason = "Token response is connected in API step 6")]
+    pub async fn execute_with_tokens(
+        &self,
+        database: &Database,
+        command: Command,
+        issuer: &AccessIssuer,
+    ) -> Result<LoginTokens, Error> {
+        let authenticated = self.execute(database, command).await?;
+        let mut tx = database
+            .tx()
+            .await
+            .map_err(|e| Error::internal("login_transaction", e))?;
+        let account = account::lock_by_id(&mut tx.context(), authenticated.id)
+            .await
+            .map_err(|e| Error::internal("lock_account", e))?
+            .ok_or_else(|| {
+                Error::internal(
+                    "lock_account",
+                    tlab::Error::IllegalState("identity account is missing".into()),
+                )
+            })?;
+        if account.status == AccountStatus::Withdrawn {
+            return Err(Error::AccountUnavailable);
+        }
+        let now = sqlx::types::time::OffsetDateTime::now_utc()
+            .replace_nanosecond(0)
+            .map_err(|e| Error::internal("login_clock", tlab::Error::Internal(e.into())))?;
+        let timestamp = u64::try_from(now.unix_timestamp())
+            .map_err(|e| Error::internal("login_clock", tlab::Error::Internal(e.into())))?;
+        let expires = now + std::time::Duration::from_secs(168 * 3600);
+        let sid = uuid::Uuid::new_v4();
+        let refresh = RefreshToken::generate()
+            .map_err(|e| Error::internal("refresh_generate", tlab::Error::Internal(e.into())))?;
+        refresh_token::insert(
+            &mut tx.context(),
+            &NewRefreshToken {
+                session_id: sid,
+                account_id: account.id,
+                token_hash: refresh.hash(),
+                session_created_at: now,
+                session_expires_at: expires,
+                created_at: now,
+                expires_at: expires,
+            },
+        )
+        .await
+        .map_err(|e| Error::internal("refresh_insert", e))?;
+        let user = serde_json::json!({"nickname": account.nickname, "status": account.status})
+            .as_object()
+            .expect("object literal")
+            .clone();
+        let access = issuer
+            .issue(&account.id.to_string(), sid, user, timestamp)
+            .map_err(|e| Error::internal("access_sign", tlab::Error::Internal(e.into())))?;
+        tx.commit()
+            .await
+            .map_err(|e| Error::internal("login_commit", e))?;
+        Ok(LoginTokens {
+            account,
+            access,
+            refresh,
+        })
+    }
     pub async fn new(hasher: Arc<dyn PasswordHasher>, slots: Arc<Semaphore>) -> tlab::Result<Self> {
         let dummy_hasher = hasher.clone();
         let dummy_password_hash =

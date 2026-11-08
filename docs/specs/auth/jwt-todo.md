@@ -76,3 +76,5 @@ JWT 기능을 책임별 작업 단위로 구현하고, 각 단계에서 실제 �
 ### Refresh 저장 구현 기록
 
 3번 Refresh 저장의 구현 범위와 실제 PostgreSQL 검증 결과는 [Refresh 저장 구현과 검증](jwt-refresh-storage/plan.md)에 기록했다. 로그인·갱신·종료 연결은 후속 범위다. (확인)
+
+4번 로그인 발급 usecase와 검증은 [로그인 발급 설계와 검증](jwt-login/plan.md)에 기록했다. HTTP 토큰 응답은 6번 범위다. (확인)

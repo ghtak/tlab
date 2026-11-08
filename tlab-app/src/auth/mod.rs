@@ -6,5 +6,6 @@ mod repository;
 mod route;
 pub mod token;
 
-pub use login_local::LocalLogin;
+#[allow(unused_imports, reason = "Token login is connected by API step 6")]
+pub use login_local::{Command as LoginCommand, Error as LoginError, LocalLogin, LoginTokens};
 pub use route::router;
