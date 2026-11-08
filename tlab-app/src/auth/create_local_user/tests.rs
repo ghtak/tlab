@@ -219,6 +219,11 @@ async fn container(url: String) -> Container {
     let passwd_hasher: Arc<dyn tlab::password::PasswordHasher> =
         Arc::new(argon2id::Hasher::new(&config.passwd_hasher).unwrap());
     let passwd_hash_slots = Arc::new(Semaphore::new(2));
+    let key_dir = tempfile::tempdir().unwrap();
+    config.auth.jwt.private_key = key_dir.path().join("private.pem");
+    config.auth.jwt.public_key = key_dir.path().join("public.pem");
+    config.auth.jwt.generate_if_missing = true;
+    let (access_issuer, access_verifier) = config.auth.jwt.prepare().unwrap();
     let local_login =
         crate::auth::LocalLogin::new(passwd_hasher.clone(), passwd_hash_slots.clone())
             .await
@@ -231,6 +236,8 @@ async fn container(url: String) -> Container {
         passwd_policy: Arc::new(NonEmptyPasswordPolicy),
         passwd_hash_slots,
         local_login,
+        access_issuer,
+        access_verifier,
         config,
     }
 }

@@ -224,6 +224,11 @@ async fn check_contracts(url: String) {
     let hasher: Arc<dyn PasswordHasher> =
         Arc::new(argon2id::Hasher::new(&config.passwd_hasher).unwrap());
     let slots = Arc::new(Semaphore::new(2));
+    let key_dir = tempfile::tempdir().unwrap();
+    config.auth.jwt.private_key = key_dir.path().join("private.pem");
+    config.auth.jwt.public_key = key_dir.path().join("public.pem");
+    config.auth.jwt.generate_if_missing = true;
+    let (access_issuer, access_verifier) = config.auth.jwt.prepare().unwrap();
     let local_login = usecase::LocalLogin::new(hasher.clone(), slots.clone())
         .await
         .unwrap();
@@ -235,6 +240,8 @@ async fn check_contracts(url: String) {
         passwd_policy: Arc::new(NonEmptyPasswordPolicy),
         passwd_hash_slots: slots,
         local_login,
+        access_issuer,
+        access_verifier,
         config,
     });
     let mut conn = container.database.conn().await.unwrap();
@@ -265,7 +272,66 @@ async fn check_contracts(url: String) {
     let snapshot = snapshot(&container).await;
     let (status, body) = login(container.clone(), " user@EXAMPLE.com ", " secret ").await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body, created);
+    assert_eq!(body["account_id"], created["account_id"]);
+    assert_eq!(body["status"], created["status"]);
+    assert!(body["access_token"].is_string());
+    assert!(body["refresh_token"].is_string());
+    let access = body["access_token"].as_str().unwrap();
+    let refresh = body["refresh_token"].as_str().unwrap();
+    async fn protected(claims: crate::auth::token::AccessClaims) -> axum::Json<Value> {
+        axum::Json(json!({"sid": claims.sid, "sub": claims.sub}))
+    }
+    let router = crate::auth::router()
+        .route("/protected", axum::routing::get(protected))
+        .with_state(container.clone());
+    let protect = |token: &str| {
+        let router = router.clone();
+        let token = token.to_owned();
+        async move {
+            let response = router
+                .oneshot(
+                    Request::get("/protected")
+                        .header("authorization", format!("Bearer {token}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            serde_json::from_slice::<Value>(&to_bytes(response.into_body(), 4096).await.unwrap())
+                .unwrap()
+        }
+    };
+    let first_claims = protect(access).await;
+    assert_eq!(first_claims["sub"], id.to_string());
+    let (status, renewed) = request(
+        container.clone(),
+        "/api/v1/auth/refresh",
+        json!({"refresh_token":refresh}).to_string(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(renewed.as_object().unwrap().len(), 1);
+    assert_eq!(
+        protect(renewed["access_token"].as_str().unwrap()).await["sid"],
+        first_claims["sid"]
+    );
+    let (status, _) = request(
+        container.clone(),
+        "/api/v1/auth/logout",
+        json!({"refresh_token":refresh}).to_string(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(protect(access).await, first_claims);
+    let (status, _) = request(
+        container.clone(),
+        "/api/v1/auth/refresh",
+        json!({"refresh_token":refresh}).to_string(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
     let account = container
         .local_login
         .execute(
@@ -384,7 +450,7 @@ async fn check_contracts(url: String) {
             .fetch_one(conn.context().backend())
             .await
             .unwrap();
-        assert_eq!(count, 2);
+        assert_eq!(count, 3);
         sqlx::raw_sql("DROP TRIGGER fail_login ON tlab_auth_refresh_token")
             .execute(conn.context().backend())
             .await
@@ -446,7 +512,7 @@ async fn check_contracts(url: String) {
         .fetch_one(conn.context().backend())
         .await
         .unwrap();
-    assert_eq!(count, 2);
+    assert_eq!(count, 3);
     sqlx::query("UPDATE tlab_account SET status='REGISTERED', withdrawn_at=NULL WHERE id=$1")
         .bind(id)
         .execute(conn.context().backend())

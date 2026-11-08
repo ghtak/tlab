@@ -13,6 +13,7 @@ pub mod response;
 #[derive(Debug, Deserialize, Clone)]
 #[serde(default, deny_unknown_fields)]
 pub struct AuthConfig {
+    pub jwt: JwtConfig,
     /// Shared capacity for password generation and verification.
     pub max_concurrent_password_hashes: usize,
 }
@@ -21,7 +22,48 @@ impl Default for AuthConfig {
     fn default() -> Self {
         Self {
             max_concurrent_password_hashes: 2,
+            jwt: JwtConfig::default(),
         }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct JwtConfig {
+    pub private_key: std::path::PathBuf,
+    pub public_key: std::path::PathBuf,
+    pub generate_if_missing: bool,
+    pub issuer: String,
+    pub audience: String,
+}
+
+impl JwtConfig {
+    pub fn prepare(
+        &self,
+    ) -> tlab::Result<(
+        crate::auth::token::AccessIssuer,
+        Arc<crate::auth::token::AccessVerifier>,
+    )> {
+        if self.issuer.trim().is_empty() || self.audience.trim().is_empty() {
+            return Err(Error::InvalidInput(
+                "auth.jwt issuer and audience are required".into(),
+            ));
+        }
+        let material = tlab::keyfiles::Ed25519KeyFile {
+            private_key: self.private_key.clone(),
+            public_key: self.public_key.clone(),
+            generate_if_missing: self.generate_if_missing,
+        }
+        .load()?;
+        let issuer = crate::auth::token::AccessIssuer::new(&material, &self.issuer, &self.audience)
+            .map_err(|_| Error::InvalidInput("invalid JWT configuration".into()))?;
+        let verifier = crate::auth::token::AccessVerifier::new(
+            material.public_key_pem(),
+            &self.issuer,
+            &self.audience,
+        )
+        .map_err(|_| Error::InvalidInput("invalid JWT configuration".into()))?;
+        Ok((issuer, Arc::new(verifier)))
     }
 }
 
@@ -77,6 +119,8 @@ pub struct Container {
     pub passwd_hash_slots: Arc<Semaphore>,
     pub local_login: crate::auth::LocalLogin,
     pub database: db::Database,
+    pub access_issuer: crate::auth::token::AccessIssuer,
+    pub access_verifier: Arc<crate::auth::token::AccessVerifier>,
 }
 
 impl Container {
@@ -90,6 +134,7 @@ impl Container {
                     .into(),
             ));
         }
+        let (access_issuer, access_verifier) = config.auth.jwt.prepare()?;
         // Prepare both instances before main opens any listeners.
         let http = http::Server::new(&config.server.http).await?;
         let https = http::Server::new(&config.server.https).await?;
@@ -109,7 +154,15 @@ impl Container {
             passwd_hash_slots,
             local_login,
             database,
+            access_issuer,
+            access_verifier,
         })
+    }
+}
+
+impl axum::extract::FromRef<Arc<Container>> for crate::auth::token::AccessVerifier {
+    fn from_ref(container: &Arc<Container>) -> Self {
+        (*container.access_verifier).clone()
     }
 }
 
@@ -143,6 +196,24 @@ mod tests {
                 Err(Error::InvalidInput(_))
             ));
         }
+    }
+
+    #[tokio::test]
+    async fn jwt_configuration_fails_before_connecting_to_database() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("config/app.toml");
+        let config: Config = tlab::config::load(path, "TLAB_JWT_SETTINGS_TEST").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let mut invalid = config.clone();
+        invalid.auth.jwt.private_key = dir.path().join("missing-private");
+        invalid.auth.jwt.public_key = dir.path().join("missing-public");
+        assert!(Container::new(invalid.clone()).await.is_err());
+        invalid.auth.jwt.generate_if_missing = true;
+        invalid.auth.jwt.issuer.clear();
+        assert!(Container::new(invalid.clone()).await.is_err());
+        assert!(!invalid.auth.jwt.private_key.exists());
+        invalid.auth.jwt.issuer = "issuer".into();
+        invalid.auth.jwt.audience.clear();
+        assert!(Container::new(invalid).await.is_err());
     }
 
     #[test]

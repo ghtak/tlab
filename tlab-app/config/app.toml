@@ -17,6 +17,13 @@ parallelism = 1
 [auth]
 max_concurrent_password_hashes = 2
 
+[auth.jwt]
+private_key = "./jwt_private.pem"
+public_key = "./jwt_public.pem"
+generate_if_missing = false
+issuer = "tlab"
+audience = "tlab-api"
+
 [database]
 # Set TLAB_APP_DATABASE__URL in .env or the environment.
 url = ""

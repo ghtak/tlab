@@ -1,5 +1,6 @@
 mod create_local_user;
 pub mod entity;
+mod extractor;
 mod login_local;
 pub mod passwd_policy;
 mod refresh_lifecycle;

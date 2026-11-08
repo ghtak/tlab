@@ -26,7 +26,7 @@ status: implemented
 - 최초 잠금 기반 구현에서 계정 잠금 대기 중 폐기 후 재조회, 실제 동시 갱신·로그아웃, 잠금 대기 중 만료, 잘못된 실제 서명 키의 실패, 폐기 SQL 실패와 지연 트리거에 의한 commit 실패·rollback을 확인했다. 갱신의 commit 실패 자체는 별도로 주입하지 않았다. (확인)
 - `cargo test --workspace --locked --offline`: 통과. 앱의 마지막 테스트 두 개 추가 전에 실행했으며 기본 실행에서 DB ignored 테스트는 제외된다. 위 앱 전체 테스트는 최종 추가를 포함한다. `cargo clippy --workspace --all-targets --locked --offline -- -D warnings`, `cargo fmt --all -- --check`, `cargo audit` 통과. audit은 1422 advisory와 294개 의존성을 검사했다. (확인)
 
-HTTP/API 응답·Bearer·쿠키·CSRF·JWKS·운영 키 조립과 실제 상태 변경 usecase의 연결은 6~8번 이후 범위다. 테스트용 signer·clock 주입 경계를 운영 코드에 추가하지 않았다. (확인)
+HTTP/API 응답과 Bearer 및 시작 시 키 조립은 [JWT API](../jwt-api/plan.md)에 연결했다. 쿠키·CSRF·JWKS와 실제 상태 변경 usecase 연결은 후속 범위다. 테스트용 signer·clock 주입 경계를 운영 코드에 추가하지 않았다. (확인)
 
 ## 갱신 잠금 제거 후 검증
 

@@ -117,5 +117,8 @@ impl RefreshLifecycle {
     }
 }
 
+mod route;
+pub(super) use route::{logout, refresh};
+
 #[cfg(test)]
 mod tests;

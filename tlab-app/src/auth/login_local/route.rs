@@ -16,6 +16,8 @@ use crate::auth::entity::AccountStatus;
 struct LoginResponse {
     account_id: i64,
     status: AccountStatus,
+    access_token: String,
+    refresh_token: String,
 }
 
 pub(crate) async fn login(
@@ -26,14 +28,16 @@ pub(crate) async fn login(
         Err(rejection) => response::invalid_json(rejection),
         Ok(Json(command)) => match container
             .local_login
-            .execute(&container.database, command)
+            .execute_with_tokens(&container.database, command, &container.access_issuer)
             .await
         {
-            Ok(account) => response::success(
+            Ok(tokens) => response::success(
                 StatusCode::OK,
                 LoginResponse {
-                    account_id: account.id,
-                    status: account.status,
+                    account_id: tokens.account.id,
+                    status: tokens.account.status,
+                    access_token: tokens.access.expose_secret().into(),
+                    refresh_token: tokens.refresh.expose_secret().into(),
                 },
             ),
             Err(error) => error.into_response(),

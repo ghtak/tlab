@@ -13,7 +13,7 @@ status: implemented
 
 클레임 `sub`는 서버 계정 ID의 문자열, `user`는 서버 계정의 `nickname`과 `status`만 포함한다. 권한 원본이 없으므로 roles는 넣지 않는다. 입력은 기존 email과 password만 허용한다. Refresh 교체는 수행하지 않는다. (확인)
 
-호출자가 기존 `Ed25519KeyFile`과 `AccessIssuer::new`로 키·iss·aud를 준비해 발급에 전달한다. 이번 단계는 HTTP에 발급을 연결하지 않으므로 신규 앱 설정이나 기본값은 없고 기존 설정과 시작 동작이 호환된다. 6번 API 연결 시 키 경로·iss·aud의 필수 여부와 배포 설정을 명시하고 Container에서 조립해야 한다. API 토큰 응답, 갱신·종료, Bearer, 쿠키·CSRF 및 키 운영은 후속 범위다. (확인·추론)
+API 연결에서 Container가 `Ed25519KeyFile`과 `AccessIssuer`·`AccessVerifier`를 시작 시 준비한다. HTTP 계약은 [JWT API](../jwt-api/plan.md)를 따른다. 쿠키·CSRF와 키 운영은 후속 범위다. (확인·추론)
 
 ## 검증과 변경 기록
 

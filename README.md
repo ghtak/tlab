@@ -29,7 +29,7 @@ Tokio·PostgreSQL이며 쿼리는 SQLx 0.9 API를 사용한다.
 `tlab-app`은 기본적으로 `127.0.0.1:8080`에서 HTTP를 실행한다. 별도 터미널에서
 `just db-up postgres`로 DB를 시작하고 `.env.example`을 `.env`로 복사한 다음
 `just app-run` → `just http-health`로 생존 확인 응답 `ok`·`HTTP 200`을 확인하고 Ctrl+C로 종료한다.
-앱은 실행 디렉터리의 `.env`를 읽으며 기존 환경변수가 우선한다. PostgreSQL 포트를 변경하면 `.env`의 URL도 변경한다.
+앱은 실행 디렉터리의 `.env`를 읽으며 기존 환경변수가 우선한다. 개발 환경에서는 `auth.jwt.generate_if_missing = true`로 지정해 로컬 키 쌍을 생성하거나 설정된 경로에 Ed25519 키 쌍을 미리 준비한다. 운영에서는 키를 안전하게 제공하고 issuer·audience를 배포 환경에 맞게 설정한다. PostgreSQL 포트를 변경하면 `.env`의 URL도 변경한다.
 HTTPS·설정 변경과 검증 도구의 역할은 [HTTP 앱 도구](docs/verification/tools/http/README.md)를 참조한다.
 
 DB 마이그레이션은 앱 설정의 DB에 다음 명령으로 실행한다. 서버는 기동하지 않는다.
@@ -58,12 +58,12 @@ SQL과 코드 작업은 번호 순서로 매번 실행한다. 이력·롤백·�
 사용자가 작업의 반복 안전성, 실행 직렬화 및 실패 후 복구를 책임진다. 파일 규칙과
 실패 처리의 상세는 [마이그레이션 명세](docs/specs/database/migrate/spec.md)를 참조한다.
 
-계정 migration 적용 후 `POST /api/accounts/local`로 로컬 사용자를 추가할 수 있다.
+계정 migration 적용 후 `POST /api/v1/accounts/local`로 로컬 사용자를 추가할 수 있다.
 JSON 입력은 `nickname`, `email`, `password`이며 성공 시 HTTP 201과 계정 ID·REGISTERED 상태를 반환한다.
 비밀번호는 Argon2id PHC로 저장한다. 기본 비밀번호 정책은 빈 문자열 거부이며
 `auth::passwd_policy::PasswordPolicy` 구현체로 교체할 수 있다.
 `[auth] max_concurrent_password_hashes`의 기본값은 2이며, 슬롯이 가득 차면 HTTP 503을 반환한다.
-현재 인증·인가 검사는 없고 접근 제한은 후속 RBAC에서 구현한다.
+로그인·토큰 갱신과 Bearer 인증 계약은 [JWT API](docs/specs/auth/jwt-api/plan.md)를 따른다. 개별 업무의 권한 판단은 해당 핸들러가 담당한다.
 VSA 배치·entity 기반 저장소 API·오류 계약은 [로컬 사용자 추가 설계](docs/specs/auth/create-local-user/plan.md)를 참조한다.
 
 로컬 테스트용 PostgreSQL·Valkey·Oracle Free 환경은 [DB 검증 도구](docs/verification/tools/database/README.md)를 참조한다.

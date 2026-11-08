@@ -119,6 +119,7 @@ impl AccessIssuer {
 
 /// Public-key-only verifier. The caller supplies a trusted SPKI Ed25519 PEM.
 /// Token headers cannot select a key or algorithm.
+#[derive(Clone)]
 pub struct AccessVerifier {
     key: DecodingKey,
     validation: Validation,
