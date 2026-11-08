@@ -20,7 +20,7 @@ status: accepted
 
 ## 책임과 배치
 
-- `tlab-app/src/auth/token/mod.rs`: auth 공용 토큰 계약·구현. `AccessIssuer`, `AccessVerifier`, `AccessClaims`, 비밀 토큰 wrapper와 `RefreshHash`를 제공한다. 시나리오·HTTP·저장소에 의존하지 않는다. (확인)
+- `tlab-app/src/auth/token.rs`: auth 공용 토큰 계약·구현. `AccessIssuer`, `AccessVerifier`, `AccessClaims`, 비밀 토큰 wrapper와 `RefreshHash`를 제공한다. 시나리오·HTTP·저장소에 의존하지 않는다. (확인)
 - `tlab/src/keyfiles/ed25519.rs`: 기존 키 읽기·생성·키 쌍 검증 책임을 그대로 사용한다. 키 로더는 수정하지 않는다. (확인)
 - 로그인·갱신 호출자: 신뢰할 수 있는 계정·사용자 정보, 로그인별 UUID v4, 실제 현재 시각을 제공한다. Refresh 저장·7일 만료·폐기와 상위 설정 조립은 후속 작업이다. (추론)
 
@@ -136,3 +136,9 @@ Advisory DB는 실행 중 갱신했으며 기준 커밋은 `309392b18f6b17022f82
 - 미검증 범위: 전체 workspace 테스트는 이번 리뷰에서 재실행하지 않았다. 상단의 기존 전체 테스트 기록과 구분한다. OS 난수 공급 실패·실제 서명 장치 실패 주입, 성능 측정, 운영 롤백은 실행하지 않았다. 이번 변경에는 해당 실패를 만들기 위한 별도 대역을 필수로 요구할 근거가 없다. DB·로그인·HTTP·JWKS·7일 만료 및 폐기는 이번 리뷰 대상에 포함하지 않는다. (확인·추론)
 
 리뷰를 위해 저장소에서 수정한 파일은 이 문서뿐이며, 기존 본문과 `AGENTS.md` 및 다른 사용자 변경을 보존한다. 코드·설정 수정, 커밋, 추가 subagent 실행은 하지 않았다. (확인)
+
+## 토큰 파일 배치 변경
+
+사용자 요청으로 `auth/token/mod.rs`를 `auth/token.rs`로 옮기고 토큰 테스트를 같은 파일의 `#[cfg(test)] mod tests`에 합쳤다. Rust 모듈 경로·공개 API·테스트 이름과 기존 동작은 유지한다. 과거 리뷰의 경로·해시는 당시 검토 대상을 나타낸다. (확인)
+
+파일 통합 후 토큰 테스트 7개와 앱 전체 target clippy·fmt·diff 검사가 통과했다. (확인)
