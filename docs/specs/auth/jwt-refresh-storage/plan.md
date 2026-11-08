@@ -59,3 +59,9 @@ status: implemented
 행 잠금 시나리오는 선행 트랜잭션이 계정과 Refresh 행을 잠근 상태에서 다른 트랜잭션이 같은 해시의 `lock_by_hash`를 호출한다. 행 잠금 자체를 검증하기 위해 테스트의 대기자만 계정 잠금을 생략한다. 대기 중 완료되지 않음을 확인하고 선행 트랜잭션에서 폐기·commit한 뒤 같은 대기 호출이 최초 폐기 시각·사유를 반환하는지 확인한다. 별도의 계정 잠금 시나리오는 실제 호출 순서를 계속 검증한다. (확인)
 
 분리된 다섯 테스트를 실제 PostgreSQL 임시 스키마에서 병렬 실행해 **5 passed, 0 failed**. 명령은 `TLAB_TEST_DATABASE_URL=… cargo test -p tlab-app auth::repository::refresh_token --locked --offline -- --ignored`. `cargo clippy --workspace --all-targets --locked --offline -- -D warnings`, `cargo fmt --all -- --check`, `git diff --check`도 통과했다. 코드·의존성은 바꾸지 않았다. 위 리뷰에서 지적한 테스트 누락은 해소되었으며, 위 점수와 판정은 보완 전 버전의 기록이다. 전체 workspace 테스트와 audit은 이번 테스트 전용 변경 후 재실행하지 않았다. (확인)
+
+## 저장소 테스트 파일 통합
+
+사용자 요청으로 `repository/refresh_token/tests.rs`를 `repository/refresh_token.rs`의 `#[cfg(test)] mod tests` 안으로 합쳤다. 저장소 구현·테스트 계약·모듈 경로는 유지한다. 과거 리뷰의 파일 경로는 당시 검토 대상이다. (확인)
+
+파일 통합 후 관련 테스트 6개와 앱 전체 target clippy·fmt·diff 검사가 통과했다. 저장소 테스트는 실제 로컬 PostgreSQL에서 실행했다. (확인)
