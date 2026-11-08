@@ -1,0 +1,158 @@
+# VS Code REST Client: 요청 위의 Send Request로 실행합니다.
+# 앱 실행과 DB migration 적용 후, 정상 흐름은 위에서 아래로 실행합니다.
+# 재실행 시 기존 계정의 가입은 409이며 같은 자격 정보로 로그인할 수 있습니다.
+# 새 계정이 필요하면 email을 변경합니다. 로컬 개발 전용 자격 정보입니다.
+@baseUrl = http://localhost:8080
+@webBaseUrl = https://localhost:8081
+@email = restclient@example.com
+@password = restclient-password
+
+### 로컬 가입 — 201, account_id와 status 반환
+# @name signup
+POST {{baseUrl}}/api/v1/accounts/local
+Content-Type: application/json
+
+{
+  "nickname": "REST Client",
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### 중복 가입 — signup 실행 후 409 / EMAIL_ALREADY_EXISTS
+POST {{baseUrl}}/api/v1/accounts/local
+Content-Type: application/json
+
+{
+  "nickname": "Duplicate",
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### 이메일 형식 오류 — 400 / INVALID_EMAIL
+POST {{baseUrl}}/api/v1/accounts/local
+Content-Type: application/json
+
+{
+  "nickname": "REST Client",
+  "email": "invalid-email",
+  "password": "{{password}}"
+}
+
+### 빈 닉네임 — 400 / NICKNAME_REQUIRED
+POST {{baseUrl}}/api/v1/accounts/local
+Content-Type: application/json
+
+{
+  "nickname": " ",
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### 빈 비밀번호 — 기본 정책에서 400 / PASSWORD_REQUIRED
+POST {{baseUrl}}/api/v1/accounts/local
+Content-Type: application/json
+
+{
+  "nickname": "REST Client",
+  "email": "{{email}}",
+  "password": ""
+}
+
+### 알 수 없는 입력 필드 — 400 / INVALID_REQUEST
+POST {{baseUrl}}/api/v1/accounts/local
+Content-Type: application/json
+
+{
+  "nickname": "REST Client",
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "status": "ACTIVE"
+}
+
+### 로컬 로그인 — 200, access_token과 refresh_token 반환
+# @name login
+POST {{baseUrl}}/api/v1/auth/local
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### 잘못된 비밀번호 — 401 / INVALID_CREDENTIALS
+POST {{baseUrl}}/api/v1/auth/local
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "incorrect-password"
+}
+
+### Access 갱신 — login 실행 후 200, 새 access_token 반환
+# @name refresh
+POST {{baseUrl}}/api/v1/auth/refresh
+Content-Type: application/json
+
+{
+  "refresh_token": "{{login.response.body.$.refresh_token}}"
+}
+
+### 유효하지 않은 Refresh — 401 / INVALID_REFRESH_TOKEN
+POST {{baseUrl}}/api/v1/auth/refresh
+Content-Type: application/json
+
+{
+  "refresh_token": "invalid-refresh-token"
+}
+
+### 로그아웃 — login 실행 후 200, 해당 세션의 Refresh 폐기
+POST {{baseUrl}}/api/v1/auth/logout
+Content-Type: application/json
+
+{
+  "refresh_token": "{{login.response.body.$.refresh_token}}"
+}
+
+### 로그아웃한 세션의 갱신 — 위 로그아웃 실행 후 401 / INVALID_REFRESH_TOKEN
+POST {{baseUrl}}/api/v1/auth/refresh
+Content-Type: application/json
+
+{
+  "refresh_token": "{{login.response.body.$.refresh_token}}"
+}
+
+# 웹 인증은 기본 auth.web.origin에 맞춘 HTTPS를 사용합니다.
+# 로컬 자체 서명 인증서를 신뢰하도록 설정해야 합니다.
+# REST Client의 rest-client.rememberCookies 설정을 켜서 쿠키를 유지합니다.
+# 오류 응답은 code와 message만 포함합니다.
+# AppError 응답 로그: 예상된 거부 INFO, BUSY WARN, INTERNAL_ERROR ERROR.
+
+### 웹 로그인 — 200, Access·Refresh를 Set-Cookie로 전달
+POST {{webBaseUrl}}/web/auth/local
+Origin: {{webBaseUrl}}
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### 웹 사용자 조회 — 웹 로그인 후 200
+GET {{webBaseUrl}}/web/auth/me
+
+### 웹 로그아웃 — 200, Refresh 폐기와 쿠키 삭제
+POST {{webBaseUrl}}/web/auth/logout
+Origin: {{webBaseUrl}}
+
+### 웹 로그아웃 후 조회 — 401 / INVALID_ACCESS_TOKEN
+GET {{webBaseUrl}}/web/auth/me
+
+### 다른 Origin의 웹 로그인 — 403 / CSRF_REJECTED
+POST {{webBaseUrl}}/web/auth/local
+Origin: https://other.example.com
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
