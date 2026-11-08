@@ -152,10 +152,10 @@ flowchart LR
 앱 정책은 `tlab-app::rbac`이 소유한다. `tlab`·일반 JWT 검증기는 RBAC를 알지 않는다. feature 내부 구현은 비공개로 하고 `rbac/mod.rs`에서 다른 feature·조립이 사용할 계약만 `pub(crate)`로 내보낸다. (추론: 설계 선택)
 
 ```rust
-// rbac/entity.rs: 필드는 비공개, 검증된 생성자와 읽기 메서드만 공개
-struct RoleId(i64);                  // Copy + Eq + Ord + Hash, 1..=i64::MAX
+// rbac/entity.rs: 값의 의미를 구분하며 생성 시 검증하지 않음
+struct RoleId(pub i64);              // Copy + Eq + Ord + Hash
 struct RoleIds(Vec<RoleId>);         // 오름차순·중복 제거
-struct PermissionCode(String);      // 고정 카탈로그 코드
+struct PermissionCode(pub String);  // 고정 카탈로그 코드
 struct PermissionSet(BTreeSet<PermissionCode>);
 struct Actor { account_id: i64, role_ids: RoleIds }
 
@@ -170,14 +170,13 @@ trait RolePermissionResolver: Send + Sync {
 
 코드 블록은 구현할 Rust 계약의 요약이다. `Future`, `Pin`, `BTreeSet`은 std 타입이며 `Arc<dyn RolePermissionResolver>`로 보관할 수 있게 객체 안전성을 유지한다. native `async fn`/제네릭 메서드/연관 Future를 이 dyn 계약에 넣지 않는다. (추론: 설계 선택)
 
-- `RoleId::try_from(i64)`와 `get() -> i64`, `RoleIds::try_from_raw(Vec<i64>)`와 `as_slice() -> &[RoleId]`를 제공한다. 각 ID를 검증하고 정렬·중복 제거한다. `RoleId` JSON 표현은 양수 정수이며 문자열·실수는 허용하지 않는다. bigint ID는 JS number 안전 범위를 넘을 수 있으므로 UI가 숫자 산술·재인코딩하지 않도록 후속 API/UI 계약에서 다뤄야 한다. (추론)
-- `PermissionCode::try_from(&str)`는 1~64 ASCII bytes, 소문자 영문으로 시작하는 점 구분 segment(`[a-z][a-z0-9_]*`)만 받는다. trim·대소문자 변환·와일드카드는 없다. 형식 검증과 카탈로그 존재 검사는 별개다. 의미는 업무 기능이 정의하고 등록은 배포로 수행한다. (추론)
-- `PermissionSet`은 읽기·`contains`·`is_subset`·합집합·차집합을 제공하며 순서는 코드 사전순이다. 빈 집합은 권한 없음. 직접 권한·상속·deny·admin 우회는 없다. 외부에서 무검증 String 집합을 넣어 검사하지 않는다. (추론)
-- `Actor::try_from_verified_claims(&AccessClaims) -> tlab::Result<Actor>`는 RBAC claims 계층이 제공한다. sub는 선행 0 없는 양수 십진 문자열(`1..=i64::MAX`)만 허용한다. 검증된 JWT의 계정 ID 외에 body/query의 actor ID를 신뢰하지 않는다. (추론)
+- `RoleId(i64)`와 `PermissionCode(String)`는 의미 구분용 타입이며 생성 과정에서 값 범위·코드 형식을 검사하지 않는다. `get`/`as_str`로 원래 값을 읽는다. `RoleIds::from_raw(Vec<i64>) -> RoleIds`는 정렬·중복 제거만 수행한다. DB row는 SQLx의 transparent Type/FromRow로 직접 읽고 다시 검증하지 않는다. JSON의 타입 해석은 후속 claims 경계가 담당한다. DB의 PK·FK·고유 제약과 기존 스키마 제약은 유지한다. (확인: 사용자 수정 반영)
+- `PermissionSet`은 읽기·`contains`·`is_subset`·합집합·차집합을 제공하며 순서는 코드 사전순이다. 빈 집합은 권한 없음. 직접 권한·상속·deny·admin 우회는 없다. 코드 집합의 의미만 제공하며 생성 시 추가 검증하지 않는다. (추론)
+- `Actor::try_from_verified_claims(&AccessClaims) -> tlab::Result<Actor>`는 RBAC claims 계층이 제공한다. sub는 선행 0 없는 양수 십진 문자열(`1..=i64::MAX`)만 허용한다. 서명·정책 검증된 JWT의 계정 ID 외에 body/query의 actor ID를 신뢰하지 않는다. (추론)
 
 #### 조회·claims·크기·오류 계약
 
-`DbRolePermissionResolver`는 Database 핸들을 소유하고 호출마다 연결을 얻어 역할 집합으로 일괄 조회한다. N+1 조회를 하지 않는다. 빈 RoleIds는 DB 연결 없이 빈 집합을 반환한다. 삭제·미존재 역할은 기여하는 퍼미션이 없고 나머지 역할은 계속 합산한다. DB 오류는 `tlab::Error::DbError`, 유효하지 않은 저장 값은 `tlab::Error::IllegalState`이며 부분 집합으로 성공시키지 않는다. 캐시는 이번에 구현하지 않는다. 향후 동일 trait을 구현하되 TTL·무효화·다중 인스턴스 일관성·장애 및 stale 허용 여부를 먼저 명세한다. (확인: 교체 경계 / 추론: 세부 계약)
+`DbRolePermissionResolver`는 Database 핸들을 소유하고 호출마다 연결을 얻어 역할 집합으로 일괄 조회한다. N+1 조회를 하지 않는다. 빈 RoleIds는 DB 연결 없이 빈 집합을 반환한다. 삭제·미존재 역할은 기여하는 퍼미션이 없고 나머지 역할은 계속 합산한다. DB 오류는 `tlab::Error::DbError`로 반환하며 부분 집합으로 성공시키지 않는다. 캐시는 이번에 구현하지 않는다. 향후 동일 trait을 구현하되 TTL·무효화·다중 인스턴스 일관성·장애 및 stale 허용 여부를 먼저 명세한다. (확인: 교체 경계 / 추론: 세부 계약)
 
 계정 역할 조회는 DB 연결을 내부에서 새로 얻는 resolver와 분리한다. 공용 repository API는 다음과 같다. 계정 존재와 상태는 auth가 판단하고 이 조회는 연결만 반환한다. 따라서 미존재 계정의 빈 결과를 계정 존재 증거로 사용하지 않는다. (추론)
 
@@ -210,7 +209,7 @@ async fn require_permission(
 ) -> tlab::Result<bool>; // true 허용, false 거부, Err 조회 실패
 ```
 
-오류 타입은 기존 `tlab::Error`/`tlab::Result`만 사용한다. 타입 생성의 잘못된 입력은 `InvalidInput`, 저장 값의 형식 위반은 `IllegalState`, SQL 실패는 원래 `DbError(sqlx::Error)`를 그대로 반환한다. RBAC 전용 InputError·LookupError·ManagementError·AuthorizationError는 만들지 않는다. 정책 거부는 정상적인 판정 결과이며, 세분화된 저장소 오류로 만들지 않는다. (확인: 사용자 수정 요청 / 추론: 책임 경계)
+오류 타입은 기존 `tlab::Error`/`tlab::Result`만 사용한다. 의미 구분용 타입 생성은 실패하지 않으며, SQL 실패는 원래 `DbError(sqlx::Error)`를 그대로 반환한다. RBAC 전용 InputError·LookupError·ManagementError·AuthorizationError는 만들지 않는다. 정책 거부는 정상적인 판정 결과이며, 세분화된 저장소 오류로 만들지 않는다. (확인: 사용자 수정 요청 / 추론: 책임 경계)
 
 HTTP 변환은 후속 usecase/route가 실패한 맥락에서 담당한다. 인증/claims 실패 401, 권한 거부 403, 잘못된 입력 400, 권한 확인 후 대상 부재 404, version·이름·부여 중 삭제 충돌 409, 조회/내부 실패 500이라는 응답 의미는 유지한다. 이를 위해 02 저장소에 HTTP/업무별 오류 enum을 미리 추가하지 않는다. 예상 DB 충돌을 구분해야 할 때는 원래 sqlx 오류의 SQLSTATE·constraint를 필요한 경계에서 확인한다. 문자열 메시지로 분기하지 않는다. (추론)
 
@@ -449,3 +448,9 @@ CLI는 마이그레이션이 끝난 카탈로그를 전제로 한다. 최초 생
 
 - 사용자가 우선 타입으로 의미를 명시하는 방법을 유지하는 쪽으로 의견을 줬다. RoleId·RoleIds·PermissionCode·PermissionSet을 유지하며, 위 기본 타입 전환 권장안은 채택하지 않는다. 타입의 책임은 양수/코드 형식 검증·정렬·중복 제거·집합 연산으로 한정한다. 임의 개수 상한은 복구하지 않는다. (확인)
 - 오류 단순화 및 MAX 제거 이후 최종 검증: PostgreSQL 고유 스키마에서 6 passed, 0 failed, 0 ignored. 예전 상한을 넘는 역할 33개·역할 퍼미션 129개·집합 4097개가 정상 처리되는 검증으로 교체했고, FK/중복/version/rollback/잠금/migration 재실행 및 오염 데이터/DB 장애 검증은 유지했다. clippy(all-targets, -D warnings)·fmt check·diff check도 통과했다. 기존 workspace JWT 설정 테스트 실패는 앞선 기록과 동일한 미해결 사항이며 이번 국소 변경에서는 전체 workspace를 재실행하지 않았다. (확인)
+
+### 02 후속 수정: 값 타입의 검증과 과도한 테스트 제거
+
+- 사용자 의견에 따라 RoleId·PermissionCode는 의미 구분용 tuple type으로 유지하고 TryFrom 검증을 제거했다. RoleIds::from_raw와 PermissionSet::from_codes/union은 실패하지 않으며 정렬·중복 제거·집합 연산만 수행한다. SQLx transparent Type/FromRow를 이용해 entity를 직접 읽으므로 raw row→검증된 entity 변환과 IllegalState 오류 경로도 제거했다. 기존 DB schema 제약은 변경하지 않았다. (확인)
+- 테스트에서 타입 생성/정규화/표준 집합 연산, 제거한 임의 한도 33/129/4097, DB 제약을 일부러 해제한 오염 데이터 검증을 제거했다. 최초 요구한 FK·중복·조회·version·rollback·migration 재실행은 실제 PostgreSQL의 3개 시나리오(재실행 보존, 저장소 계약, 잠금/CAS 경합)로 검증하도록 축소했다. 일반 생성자·표준 라이브러리를 반복 검증하는 새 테스트는 추가하지 않았다. (확인)
+- 최종 축소 검증: `env TLAB_TEST_DATABASE_URL=postgres://tlab:tlab_dev@127.0.0.1:5432/tlab cargo test -p tlab-app --test rbac_storage --locked -- --include-ignored`에서 **3 passed, 0 failed, 0 ignored**. `cargo clippy -p tlab-app --all-targets --locked -- -D warnings`, `cargo fmt --all --check`, `git diff --check` 통과. 고유 테스트 스키마만 사용했고 03 이후 구현·커밋·추가 에이전트는 실행하지 않았다. (확인)

@@ -2,7 +2,6 @@ use crate::{
     app::db::Context,
     rbac::{AccountRole, NewAccountRole, RoleId, RoleIds},
 };
-use sqlx::types::time::OffsetDateTime;
 use tlab::Result;
 
 pub(crate) async fn list_role_ids(ctx: &mut Context<'_>, account_id: i64) -> Result<RoleIds> {
@@ -12,27 +11,18 @@ pub(crate) async fn list_role_ids(ctx: &mut Context<'_>, account_id: i64) -> Res
     .bind(account_id)
     .fetch_all(ctx.backend())
     .await?;
-    RoleIds::try_from_raw(ids)
-        .map_err(|_| tlab::Error::IllegalState("invalid stored RBAC data".into()))
+    Ok(RoleIds::from_raw(ids))
 }
-/// Account lock and resulting assignment count policy are caller responsibilities.
+/// Account/role locks and management policy are caller responsibilities.
 /// None means the same assignment already exists; its grant time is unchanged.
 pub(crate) async fn insert(
     ctx: &mut Context<'_>,
     value: &NewAccountRole,
 ) -> Result<Option<AccountRole>> {
-    let row = sqlx::query_as::<_, (i64, i64, OffsetDateTime)>("INSERT INTO tlab_rbac_account_role (account_id, role_id) VALUES ($1,$2) ON CONFLICT (account_id,role_id) DO NOTHING RETURNING account_id,role_id,granted_at")
-        .bind(value.account_id).bind(value.role_id.get()).fetch_optional(ctx.backend()).await?;
-    row.map(|(account_id, role_id, granted_at)| {
-        Ok(AccountRole {
-            account_id,
-            role_id: RoleId::try_from(role_id)
-                .map_err(|_| tlab::Error::IllegalState("invalid stored RBAC data".into()))?,
-            granted_at,
-        })
-    })
-    .transpose()
+    Ok(sqlx::query_as("INSERT INTO tlab_rbac_account_role (account_id, role_id) VALUES ($1,$2) ON CONFLICT (account_id,role_id) DO NOTHING RETURNING account_id,role_id,granted_at")
+        .bind(value.account_id).bind(value.role_id.get()).fetch_optional(ctx.backend()).await?)
 }
+
 pub(crate) async fn delete(
     ctx: &mut Context<'_>,
     account_id: i64,

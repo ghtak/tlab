@@ -1,19 +1,12 @@
 use sqlx::types::time::OffsetDateTime;
 use std::collections::BTreeSet;
-use tlab::Error;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, sqlx::Type,
+)]
 #[serde(transparent)]
-pub(crate) struct RoleId(i64);
-impl TryFrom<i64> for RoleId {
-    type Error = Error;
-    fn try_from(value: i64) -> Result<Self, Self::Error> {
-        if value <= 0 {
-            return Err(Error::InvalidInput("role ID must be positive".into()));
-        }
-        Ok(Self(value))
-    }
-}
+#[sqlx(transparent)]
+pub(crate) struct RoleId(pub i64);
 impl RoleId {
     pub(crate) fn get(self) -> i64 {
         self.0
@@ -24,40 +17,20 @@ impl RoleId {
 #[serde(transparent)]
 pub(crate) struct RoleIds(Vec<RoleId>);
 impl RoleIds {
-    pub(crate) fn try_from_raw(mut values: Vec<i64>) -> tlab::Result<Self> {
+    pub(crate) fn from_raw(mut values: Vec<i64>) -> Self {
         values.sort_unstable();
         values.dedup();
-        Ok(Self(
-            values
-                .into_iter()
-                .map(RoleId::try_from)
-                .collect::<Result<_, _>>()?,
-        ))
+        Self(values.into_iter().map(RoleId).collect())
     }
     pub(crate) fn as_slice(&self) -> &[RoleId] {
         &self.0
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, sqlx::Type)]
 #[serde(transparent)]
-pub(crate) struct PermissionCode(String);
-impl TryFrom<&str> for PermissionCode {
-    type Error = Error;
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let valid = !value.is_empty()
-            && value.len() <= 64
-            && value.split('.').all(|part| {
-                let mut bytes = part.bytes();
-                bytes.next().is_some_and(|b| b.is_ascii_lowercase())
-                    && bytes.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
-            });
-        if !valid {
-            return Err(Error::InvalidInput("invalid permission code".into()));
-        }
-        Ok(Self(value.to_owned()))
-    }
-}
+#[sqlx(transparent)]
+pub(crate) struct PermissionCode(pub String);
 impl PermissionCode {
     pub(crate) fn as_str(&self) -> &str {
         &self.0
@@ -91,7 +64,7 @@ impl PermissionSet {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub(crate) struct Role {
     pub id: RoleId,
     pub name: String,
@@ -108,7 +81,7 @@ pub(crate) struct RoleMetadata {
     pub name: String,
     pub description: String,
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub(crate) struct Permission {
     pub code: PermissionCode,
     pub description: String,
@@ -121,7 +94,7 @@ pub(crate) struct NewAccountRole {
     pub account_id: i64,
     pub role_id: RoleId,
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub(crate) struct AccountRole {
     pub account_id: i64,
     pub role_id: RoleId,

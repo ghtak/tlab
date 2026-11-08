@@ -5,10 +5,10 @@ use crate::{
 use tlab::Result;
 
 pub(crate) async fn list_for_role(ctx: &mut Context<'_>, role_id: RoleId) -> Result<PermissionSet> {
-    let codes = sqlx::query_scalar::<_, String>(
+    let codes = sqlx::query_scalar::<_, PermissionCode>(
         "SELECT permission_code FROM tlab_rbac_role_permission WHERE role_id=$1 ORDER BY permission_code COLLATE \"C\"",
     ).bind(role_id.get()).fetch_all(ctx.backend()).await?;
-    decode(codes)
+    Ok(PermissionSet::from_codes(codes))
 }
 /// One statement provides a consistent, deduplicated permission union.
 pub(crate) async fn resolve_in_context(
@@ -19,19 +19,9 @@ pub(crate) async fn resolve_in_context(
         return Ok(PermissionSet::default());
     }
     let ids: Vec<_> = role_ids.as_slice().iter().map(|id| id.get()).collect();
-    let codes = sqlx::query_scalar::<_, String>(
+    let codes = sqlx::query_scalar::<_, PermissionCode>(
         "SELECT DISTINCT permission_code COLLATE \"C\" FROM tlab_rbac_role_permission WHERE role_id = ANY($1) ORDER BY permission_code COLLATE \"C\"",
     ).bind(ids).fetch_all(ctx.backend()).await?;
-    decode(codes)
-}
-fn decode(codes: Vec<String>) -> Result<PermissionSet> {
-    let codes = codes
-        .iter()
-        .map(|code| {
-            PermissionCode::try_from(code.as_str())
-                .map_err(|_| tlab::Error::IllegalState("invalid stored RBAC data".into()))
-        })
-        .collect::<Result<Vec<_>>>()?;
     Ok(PermissionSet::from_codes(codes))
 }
 /// Link writes do not change the role version; caller composes them with
