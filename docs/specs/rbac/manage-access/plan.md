@@ -159,20 +159,18 @@ struct PermissionCode(pub String);  // 고정 카탈로그 코드
 struct PermissionSet(BTreeSet<PermissionCode>);
 struct Actor { account_id: i64, role_ids: RoleIds }
 
-// 표준 Future/Pin. 외부 async-trait 의존성은 추가하지 않음
+// 03 구현 중 사용자 피드백: 선언·구현에 async-trait 사용
+#[async_trait::async_trait]
 trait RolePermissionResolver: Send + Sync {
-    fn resolve<'a>(
-        &'a self,
-        role_ids: &'a RoleIds,
-    ) -> Pin<Box<dyn Future<Output = tlab::Result<PermissionSet>> + Send + 'a>>;
+    async fn resolve(&self, role_ids: &RoleIds) -> tlab::Result<PermissionSet>;
 }
 ```
 
-코드 블록은 구현할 Rust 계약의 요약이다. `Future`, `Pin`, `BTreeSet`은 std 타입이며 `Arc<dyn RolePermissionResolver>`로 보관할 수 있게 객체 안전성을 유지한다. native `async fn`/제네릭 메서드/연관 Future를 이 dyn 계약에 넣지 않는다. (추론: 설계 선택)
+코드 블록은 Rust 계약의 요약이다. `async-trait`가 Send boxed Future로 변환하므로 `Arc<dyn RolePermissionResolver>`로 보관할 수 있다. native `async fn`만 선언하는 형태와 구분하며 선언·구현 모두 매크로를 적용한다. 기존 수동 Future/Pin 선언과 의존성 미추가 선택은 03 구현 중 사용자 피드백으로 대체한다. (확인: 최신 사용자 피드백·구현)
 
 - `RoleId(i64)`와 `PermissionCode(String)`는 의미 구분용 타입이며 생성 과정에서 값 범위·코드 형식을 검사하지 않는다. `get`/`as_str`로 원래 값을 읽는다. `RoleIds::from_raw(Vec<i64>) -> RoleIds`는 정렬·중복 제거만 수행한다. DB row는 SQLx의 transparent Type/FromRow로 직접 읽고 다시 검증하지 않는다. JSON의 타입 해석은 후속 claims 경계가 담당한다. DB의 PK·FK·고유 제약과 기존 스키마 제약은 유지한다. (확인: 사용자 수정 반영)
 - `PermissionSet`은 읽기·`contains`·`is_subset`·합집합·차집합을 제공하며 순서는 코드 사전순이다. 빈 집합은 권한 없음. 직접 권한·상속·deny·admin 우회는 없다. 코드 집합의 의미만 제공하며 생성 시 추가 검증하지 않는다. (추론)
-- `Actor::try_from_verified_claims(&AccessClaims) -> tlab::Result<Actor>`는 RBAC claims 계층이 제공한다. sub는 선행 0 없는 양수 십진 문자열(`1..=i64::MAX`)만 허용한다. 서명·정책 검증된 JWT의 계정 ID 외에 body/query의 actor ID를 신뢰하지 않는다. (추론)
+- `Actor::try_from_verified_claims(&AccessClaims) -> tlab::Result<Actor>`는 RBAC claims 계층이 제공한다. 검증된 JWT의 sub는 신뢰하고 계정 ID로 사용하기 위한 `i64` 변환만 수행한다. 별도의 양수·십진 형식·선행 0 검증은 하지 않는다. body/query의 actor ID를 신뢰하지 않는다. (확인: 03 구현 중 최신 사용자 피드백)
 
 #### 조회·claims·크기·오류 계약
 
@@ -454,3 +452,22 @@ CLI는 마이그레이션이 끝난 카탈로그를 전제로 한다. 최초 생
 - 사용자 의견에 따라 RoleId·PermissionCode는 의미 구분용 tuple type으로 유지하고 TryFrom 검증을 제거했다. RoleIds::from_raw와 PermissionSet::from_codes/union은 실패하지 않으며 정렬·중복 제거·집합 연산만 수행한다. SQLx transparent Type/FromRow를 이용해 entity를 직접 읽으므로 raw row→검증된 entity 변환과 IllegalState 오류 경로도 제거했다. 기존 DB schema 제약은 변경하지 않았다. (확인)
 - 테스트에서 타입 생성/정규화/표준 집합 연산, 제거한 임의 한도 33/129/4097, DB 제약을 일부러 해제한 오염 데이터 검증을 제거했다. 최초 요구한 FK·중복·조회·version·rollback·migration 재실행은 실제 PostgreSQL의 3개 시나리오(재실행 보존, 저장소 계약, 잠금/CAS 경합)로 검증하도록 축소했다. 일반 생성자·표준 라이브러리를 반복 검증하는 새 테스트는 추가하지 않았다. (확인)
 - 최종 축소 검증: `env TLAB_TEST_DATABASE_URL=postgres://tlab:tlab_dev@127.0.0.1:5432/tlab cargo test -p tlab-app --test rbac_storage --locked -- --include-ignored`에서 **3 passed, 0 failed, 0 ignored**. `cargo clippy -p tlab-app --all-targets --locked -- -D warnings`, `cargo fmt --all --check`, `git diff --check` 통과. 고유 테스트 스키마만 사용했고 03 이후 구현·커밋·추가 에이전트는 실행하지 않았다. (확인)
+
+### 03 DB resolver·공용 인가 구현 및 자체 점검
+
+- 사용자가 03 구현·검증·자체 점검을 승인했다. 지정된 t33 오른쪽 pane에서 진행했으며 추가 터미널·에이전트·커밋·배포는 실행하지 않았다. 변경 파일은 `rbac/{resolver,claims,authorization,policy,mod}.rs`, `tests/rbac_storage.rs`, `tests/rbac/authorization.rs`와 이 plan, 사용자 후속 피드백에 따른 `tlab-app/Cargo.toml`·`Cargo.lock`의 async-trait 직접 의존성 연결이다. 기존 entity·repository·migration·auth 발급·JWT 검증기·Container·HTTP 코드는 변경하지 않았다. (확인)
+- `RolePermissionResolver: Send + Sync`는 **사용자 후속 피드백에 따라 `#[async_trait]`와 `async fn resolve(&self, &RoleIds) -> tlab::Result<PermissionSet>`로 선언·구현**한다. 매크로가 Send boxed Future를 제공하며 실제 `Arc<dyn RolePermissionResolver>`로 호출·컴파일한다. async-trait 0.1.92는 이미 lockfile에 있던 버전을 직접 의존성으로 연결했다. 최초 구현 `DbRolePermissionResolver::new(Arc<app::db::Database>)`는 기존 풀을 공유하고 호출마다 연결을 얻어 02의 `resolve_in_context`를 재사용한다. 빈 역할은 연결 없이 빈 집합, 미존재·삭제 역할은 기여 없음, 중복 퍼미션은 합집합이다. 조회·연결 실패는 원래 `tlab::Error::DbError(sqlx::Error)`를 그대로 전달한다. cache는 구현하지 않았다. (확인)
+- `Actor { account_id: i64, role_ids: RoleIds }`와 `Actor::try_from_verified_claims(&AccessClaims) -> tlab::Result<Actor>`를 공개 재노출했다. **구현 중 사용자 피드백에 따라 검증된 JWT의 sub에 대한 양수·문자 형식·선행 0 재검증은 제거했다.** 계정 ID 사용에 필요한 `parse::<i64>()`와 공통 InvalidInput 변환만 남겼다. 이 결정은 앞선 sub 형식 제한을 대체한다. `user.role_ids`의 JSON 경계는 기존 합의대로 누락 시 빈 역할, 배열의 양수 i64 정수만 허용하고 잘못된 원소가 있으면 전체 실패한다. 값 타입 생성 검증·임의 개수 제한·JWT 크기 제한·전용 오류 enum은 추가하지 않았다. (확인: 최신 사용자 피드백·구현)
+- `require_permission(&Actor, &PermissionCode, &dyn RolePermissionResolver) -> tlab::Result<bool>`은 허용/거부/조회 실패를 구분한다. DB 없는 공용 정책은 `require_in_set`, `check_role_edit`, `check_assignment_grant`이며 전부 bool을 반환한다. 역할 편집은 `rbac.role.manage`와 `(after − before) ⊆ actor_permissions`, 부여는 `rbac.assignment.manage`와 대상 전체의 부분집합을 함께 요구한다. 기존 강한 역할의 유지·축소는 허용하며, 회수는 `require_in_set(..., rbac.assignment.manage)`, 메타데이터 변경·삭제는 `require_in_set(..., rbac.role.manage)`로 행위 권한만 검사한다. 별도 자기 회수·마지막 관리자 제한은 없다. (확인)
+
+#### 실행 근거와 검증 범위
+
+- 02의 `rbac_storage` 진입점을 최소 연결해 실제 RBAC 소스와 실제 `auth/token.rs`를 컴파일했다. auth/token 동작을 복제하지 않고 검증된 AccessClaims로 claims 경계를 테스트했다. 새 테스트는 claims 경계·순수 관리 정책·DB resolver 인가·풀 획득 실패의 4개 시나리오이며 생성자·표준 집합 연산·제거된 한도를 반복 검증하지 않는다. token 소스에 포함된 기존 테스트 8개와 02 저장소 테스트 3개도 함께 실행된다. (확인)
+- `env TLAB_TEST_DATABASE_URL=postgres://tlab:tlab_dev@127.0.0.1:5432/tlab cargo test -p tlab-app --test rbac_storage --locked -- --include-ignored`: 최신 sub·async-trait 피드백까지 반영한 최종 결과 **15 passed, 0 failed, 0 ignored**, 30.40초. 기존 격리 helper가 생성하는 PostgreSQL 고유 스키마에서만 migration·데이터 준비를 실행하고 종료 후 정리했다. 공유 업무 스키마·운영 데이터에는 migration을 적용하지 않았다. 실제 연결을 통한 합집합·미보유 거부·삭제 역할·현재 구성 변경 반영, 테이블명 변경으로 유발한 SQLSTATE `42P01` 보존, 격리 풀 연결을 점유해 유발한 `PoolTimedOut` 보존과 빈 역할의 연결 생략을 확인했다. (확인)
+- 최신 피드백 반영 후 `cargo clippy -p tlab-app --all-targets --locked -- -D warnings`, `cargo fmt --all --check`, `git diff --check` 통과. 기존 workspace JWT 설정 테스트 실패는 앞선 기록의 미해결 사항이며 범위 밖 코드를 수정하지 않았다. 전체 workspace 테스트 성공으로 보고하지 않는다. (확인)
+
+#### 후속 공개 API·남은 사항
+
+- 공개 계약은 모두 `rbac/mod.rs`의 `pub(crate)` 재노출로 사용한다. `Actor`, `RolePermissionResolver`, `DbRolePermissionResolver`, `require_permission`, `require_in_set`, `check_role_edit`, `check_assignment_grant`를 추가했으며 기존 `list_role_ids`·`resolve_in_context`는 그대로다. 07은 Database를 Arc로 공유해 기존 업무와 resolver가 같은 풀을 사용하도록 조립하면 된다. 이번에는 Container를 변경하지 않았다. (확인: 제공 계약 / 추론: 후속 조립)
+- 자체 점검에서 DB 조회 중복 구현·N+1·오류 재분류·부분 성공·일반 JWT 검증기의 RBAC 의존·타입 생성 검증·임의 한도·관리 퍼미션 생략 여부를 확인했다. 관리 쓰기의 최종 판정은 05·06이 같은 트랜잭션에서 잠금 후 `resolve_in_context`와 순수 정책을 조합해야 한다. 요청 진입 resolver의 별도 연결 결과만으로 변경을 확정하지 않는다. (확인: 코드 점검 / 추론: 후속 적용)
+- 03 산출물은 서버 런타임에 아직 연결하지 않았다. 04 발급, 05·06 관리 slice·경합·CLI, 07 HTTP·Container·401/403/500 매핑, 08 전체 통합 검증은 미구현·미검증으로 남긴다. cache는 후속 명세가 필요하다. (확인)

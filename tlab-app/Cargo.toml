@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+async-trait = "0.1"
 axum = { version = "0.8", default-features = false, features = ["http1", "http2", "json", "tokio"] }
 dotenvy = "0.15"
 email_address = { version = "0.2", default-features = false }

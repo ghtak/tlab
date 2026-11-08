@@ -1,5 +1,12 @@
-//! Step-02 executable boundary: compile the actual storage module without
+//! Step-02/03 executable boundary: compile the actual RBAC and token sources without
 //! editing step-07's binary root. These aliases exactly match app::db.
+#[path = "../src/auth/token.rs"]
+mod token;
+mod auth {
+    pub(crate) use crate::token;
+}
+#[path = "rbac/authorization.rs"]
+mod authorization;
 mod app {
     pub mod db {
         pub type Database = tlab::sqlxdb::Database<sqlx::Postgres>;
