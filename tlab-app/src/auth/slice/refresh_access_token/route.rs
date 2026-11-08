@@ -21,7 +21,7 @@ pub(in crate::auth) async fn refresh(
 ) -> Response {
     let response = match payload {
         Err(e) => crate::app::response::invalid_json(e),
-        Ok(Json(input)) => match super::RefreshLifecycle::refresh(
+        Ok(Json(input)) => match super::usecase::execute(
             &container.database,
             &input.refresh_token,
             &container.access_issuer,
@@ -32,38 +32,22 @@ pub(in crate::auth) async fn refresh(
                 StatusCode::OK,
                 serde_json::json!({"access_token": token.expose_secret()}),
             ),
-            Err(e) => lifecycle_error(e),
+            Err(e) => operation_error(e),
         },
     };
     no_store(response)
 }
 
-pub(in crate::auth) async fn logout(
-    State(container): State<Arc<Container>>,
-    payload: Result<Json<RefreshRequest>, JsonRejection>,
-) -> Response {
-    let response = match payload {
-        Err(e) => crate::app::response::invalid_json(e),
-        Ok(Json(input)) => {
-            match super::RefreshLifecycle::logout(&container.database, &input.refresh_token).await {
-                Ok(()) => crate::app::response::success(StatusCode::OK, serde_json::json!({})),
-                Err(e) => lifecycle_error(e),
-            }
-        }
-    };
-    no_store(response)
-}
-
-fn lifecycle_error(error: super::Error) -> Response {
+fn operation_error(error: super::usecase::Error) -> Response {
     match error {
-        super::Error::InvalidRefresh => crate::app::response::error(
+        super::usecase::Error::InvalidRefresh => crate::app::response::error(
             StatusCode::UNAUTHORIZED,
             "INVALID_REFRESH_TOKEN",
             None,
             "refresh token rejected",
         ),
-        super::Error::Internal(failure) => {
-            tracing::error!(operation = "refresh_lifecycle", stage = failure.stage, cause = ?failure.cause, "refresh operation failed");
+        super::usecase::Error::Internal(failure) => {
+            tracing::error!(operation = "refresh_access_token", stage = failure.stage, cause = ?failure.cause, "refresh operation failed");
             crate::app::response::internal_error("refresh operation failed")
         }
     }

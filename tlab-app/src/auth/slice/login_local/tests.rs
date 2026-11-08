@@ -248,13 +248,13 @@ async fn fixture(url: String) -> (Arc<Container>, Value, i64) {
     });
     let mut conn = container.database.conn().await.unwrap();
     sqlx::raw_sql(include_str!(
-        "../../../migrations/0001_create_tlab_account.sql"
+        "../../../../migrations/0001_create_tlab_account.sql"
     ))
     .execute(conn.context().backend())
     .await
     .unwrap();
     sqlx::raw_sql(include_str!(
-        "../../../migrations/0002_create_tlab_auth_refresh_token.sql"
+        "../../../../migrations/0002_create_tlab_auth_refresh_token.sql"
     ))
     .execute(conn.context().backend())
     .await

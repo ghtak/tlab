@@ -251,8 +251,8 @@ DB 테스트는 전용 스키마에서 현재 migration을 적용하고 격리·
 
 ### 발견 사항
 
-1. **[경미] 닉네임에 NUL이 있으면 입력 오류 대신 HTTP 500을 반환한다.** [`usecase.rs`](../../../../tlab-app/src/auth/create_local_user/usecase.rs)의 nickname 검증은 trim 후 빈 값만 검사한다. JSON의 `member\u0000name`은 이 검증을 통과한 뒤 PostgreSQL TEXT 저장에서 실패해 Internal로 변환된다. 현재 코드와 일치하는 임시 사본을 HTTP Router·고유 PostgreSQL 스키마에 연결해 정상 입력 201, NUL 입력 500/INTERNAL_ERROR를 재현했다. 데이터를 손상시키지는 않지만 입력 오류 분류가 잘못되고 불필요한 해싱·DB 작업을 수행한다. 닉네임의 NUL을 해싱 전에 거부해 400으로 응답하고 이 사례를 기존 입력 검증 테스트에 추가하는 방향을 권한다. (확인: 재현 / 추론: 수정 방향)
-2. **[경미] 내부 오류의 진단 원인이 route에서 소실된다.** [`route.rs`](../../../../tlab-app/src/auth/create_local_user/route.rs)의 `Error::Internal(cause)` 분기는 cause를 사용하지 않고 `local user creation failed`만 기록한다. DB 연결 실패·제약 위반·해싱 실패·blocking task 실패를 구분할 진단 정보가 최종 로그에 남지 않는다. 응답에서 원문을 숨기는 것은 적절하지만, 서버에서도 구분이 사라져 장애 원인 파악이 어려워진다. DB 원문 메시지를 그대로 기록하는 대신 실패 단계·안전한 오류 종류·허용한 SQLSTATE 등 비밀을 포함하지 않는 진단 필드를 보존하는 방향을 권한다. (확인: 코드 / 추론: 영향·개선 방향)
+1. **[경미] 닉네임에 NUL이 있으면 입력 오류 대신 HTTP 500을 반환한다.** [`usecase.rs`](../../../../tlab-app/src/auth/slice/create_local_user/usecase.rs)의 nickname 검증은 trim 후 빈 값만 검사한다. JSON의 `member\u0000name`은 이 검증을 통과한 뒤 PostgreSQL TEXT 저장에서 실패해 Internal로 변환된다. 현재 코드와 일치하는 임시 사본을 HTTP Router·고유 PostgreSQL 스키마에 연결해 정상 입력 201, NUL 입력 500/INTERNAL_ERROR를 재현했다. 데이터를 손상시키지는 않지만 입력 오류 분류가 잘못되고 불필요한 해싱·DB 작업을 수행한다. 닉네임의 NUL을 해싱 전에 거부해 400으로 응답하고 이 사례를 기존 입력 검증 테스트에 추가하는 방향을 권한다. (확인: 재현 / 추론: 수정 방향)
+2. **[경미] 내부 오류의 진단 원인이 route에서 소실된다.** [`route.rs`](../../../../tlab-app/src/auth/slice/create_local_user/route.rs)의 `Error::Internal(cause)` 분기는 cause를 사용하지 않고 `local user creation failed`만 기록한다. DB 연결 실패·제약 위반·해싱 실패·blocking task 실패를 구분할 진단 정보가 최종 로그에 남지 않는다. 응답에서 원문을 숨기는 것은 적절하지만, 서버에서도 구분이 사라져 장애 원인 파악이 어려워진다. DB 원문 메시지를 그대로 기록하는 대신 실패 단계·안전한 오류 종류·허용한 SQLSTATE 등 비밀을 포함하지 않는 진단 필드를 보존하는 방향을 권한다. (확인: 코드 / 추론: 영향·개선 방향)
 
 provider·status의 String 사용은 리뷰 중 논의에 따라 Rust enum으로 변경하고 실제 DB 인코딩·디코딩을 검증했다. 현재 리뷰에서는 해결된 구조 개선으로 기록한다. DB TEXT 확장과 앱이 지원하는 enum 범위를 구분하며 알 수 없는 코드의 디코딩은 명시적으로 실패한다. (확인)
 

@@ -53,3 +53,60 @@ where
         .unwrap();
     result.unwrap();
 }
+
+use super::{
+    entity::{AccountStatus, NewAccount},
+    repository::{account, refresh_token},
+    token::{AccessIssuer, RefreshToken as Secret},
+};
+use sqlx::types::time::OffsetDateTime;
+use std::time::Duration;
+
+pub(super) async fn session_setup(db: &Database) -> (i64, Secret, uuid::Uuid) {
+    use crate::auth::entity::NewRefreshToken;
+    let mut conn = db.conn().await.unwrap();
+    let account = account::insert(
+        &mut conn.context(),
+        &NewAccount {
+            nickname: "original".into(),
+            status: AccountStatus::Active,
+            withdrawn_at: None,
+        },
+    )
+    .await
+    .unwrap();
+    let secret = Secret::generate().unwrap();
+    let sid = uuid::Uuid::new_v4();
+    let now = OffsetDateTime::now_utc().replace_nanosecond(0).unwrap();
+    refresh_token::insert(
+        &mut conn.context(),
+        &NewRefreshToken {
+            session_id: sid,
+            account_id: account.id,
+            token_hash: secret.hash(),
+            session_created_at: now,
+            session_expires_at: now + Duration::from_secs(604800),
+            created_at: now,
+            expires_at: now + Duration::from_secs(604800),
+        },
+    )
+    .await
+    .unwrap();
+    (account.id, secret, sid)
+}
+
+pub(super) fn token_keys() -> (AccessIssuer, crate::auth::token::AccessVerifier) {
+    let dir = tempfile::tempdir().unwrap();
+    let material = tlab::keyfiles::Ed25519KeyFile {
+        private_key: dir.path().join("private.pem"),
+        public_key: dir.path().join("public.pem"),
+        generate_if_missing: true,
+    }
+    .load()
+    .unwrap();
+    (
+        AccessIssuer::new(&material, "issuer", "audience").unwrap(),
+        crate::auth::token::AccessVerifier::new(material.public_key_pem(), "issuer", "audience")
+            .unwrap(),
+    )
+}

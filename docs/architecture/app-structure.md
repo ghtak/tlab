@@ -14,7 +14,7 @@
 이 문서는 백엔드인 `tlab-app`의 개발 구조를 정리한다.
 현재 앱은 [`app::Container`](../../tlab-app/src/app.rs)에서 구성요소를 소유하고,
 [`http`](../../tlab-app/src/http.rs)에서 Router 조립과 서버 실행·종료를 담당한다.
-아직 feature별 모듈은 없으며, 아래 배치와 경계는 향후 개발을 위한 제안이다. (확인·추론)
+현재 `auth`는 공용 구성요소를 루트에 두고, 시나리오를 `slice/` 아래에 모은다. (확인)
 
 앱과 공통 라이브러리의 역할은 [아키텍처 개요](index.md)를 따른다.
 특정 feature의 정책과 시나리오는 앱에 두고, 앱과 독립적으로 재사용할 기반 기능은 `tlab`이 제공한다. (추론)
@@ -44,12 +44,16 @@ tlab-app/src/
     ├── mod.rs                     # slice 선언·feature의 공개 계약
     ├── route.rs                   # API 경로·메서드와 slice handler를 직접 연결
     ├── entity.rs                  # 여러 slice가 공유하는 타입·불변 조건
-    ├── create_managed_user.rs     # 작은 slice: 요청·처리·저장소 호출·테스트
-    ├── login_managed_user/
-    │   ├── mod.rs                # slice 공개 진입점·타입
-    │   ├── route.rs              # 요청·응답·제어
-    │   ├── usecase.rs            # 로그인 시나리오와 트랜잭션
-    │   └── tests.rs              # 로그인 계약·상태 변화 검증
+    ├── slice/                     # 시나리오 모듈과 진입점
+    │   ├── mod.rs
+    │   ├── create_local_user/
+    │   │   ├── mod.rs
+    │   │   ├── route.rs
+    │   │   ├── usecase.rs
+    │   │   └── tests.rs
+    │   ├── login_local/
+    │   ├── refresh_access_token/
+    │   └── logout/
     ├── repository/
     │   ├── account.rs            # Account entity 기반 CRUD
     │   └── identity.rs           # Identity entity 기반 CRUD
@@ -58,6 +62,9 @@ tlab-app/src/
     │   └── token_service.rs       # 여러 slice가 함께 사용하는 토큰 작업
     └── migrations/               # feature 소유 스키마가 있을 때
 ```
+
+`auth/slice/`는 시나리오를 모으며 공용 정책·entity·저장소 API는 `auth` 루트에 둔다.
+slice는 auth 공용 구성요소를 사용하고 다른 slice의 내부 구현에 의존하지 않는다. (확인·추론)
 
 `auth/route.rs`는 `/api/v1/...` 경로·메서드에 각 slice의 handler 함수를 직접 등록하고 feature Router를 제공한다.
 실제 handler와 요청·응답 타입은 각 slice에 둔다. 한두 개의 경로를 등록하기 위해 slice마다 Router를 만들고 merge하지 않는다. (확인: 사용자 요청)

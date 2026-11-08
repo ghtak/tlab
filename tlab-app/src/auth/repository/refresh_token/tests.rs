@@ -368,3 +368,48 @@ async fn refresh_row_lock_waits_and_returns_committed_state() {
     })
     .await;
 }
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL and TLAB_TEST_DATABASE_URL"]
+async fn account_state_and_revoke_all_rollback_together() {
+    isolated(|db| async move {
+        let (id, secret, _) = crate::auth::test_support::session_setup(&db).await;
+        let mut tx = db.tx().await.unwrap();
+        account::lock_by_id(&mut tx.context(), id)
+            .await
+            .unwrap()
+            .unwrap();
+        sqlx::query("UPDATE tlab_account SET status='WITHDRAWN', withdrawn_at=now() WHERE id=$1")
+            .bind(id)
+            .execute(tx.context().backend())
+            .await
+            .unwrap();
+        revoke_account(
+            &mut tx.context(),
+            id,
+            OffsetDateTime::now_utc(),
+            RevokeReason::AccountWithdrawn,
+        )
+        .await
+        .unwrap();
+        tx.rollback().await.unwrap();
+        let mut conn = db.conn().await.unwrap();
+        assert_eq!(
+            account::find_by_id(&mut conn.context(), id)
+                .await
+                .unwrap()
+                .unwrap()
+                .status,
+            AccountStatus::Active
+        );
+        assert!(
+            find_by_hash(&mut conn.context(), &secret.hash())
+                .await
+                .unwrap()
+                .unwrap()
+                .revoked_at
+                .is_none()
+        );
+    })
+    .await;
+}

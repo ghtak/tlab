@@ -25,7 +25,7 @@ status: accepted
 
 | 대상 | 확인한 상태 | 이번 설계의 사용·변경 |
 | --- | --- | --- |
-| [가입 usecase](../../../../tlab-app/src/auth/create_local_user/usecase.rs) | 이메일 trim, 비밀번호 원문 해싱, REGISTERED·LOCAL identity 생성 | 가입 계약 유지 |
+| [가입 usecase](../../../../tlab-app/src/auth/slice/create_local_user/usecase.rs) | 이메일 trim, 비밀번호 원문 해싱, REGISTERED·LOCAL identity 생성 | 가입 계약 유지 |
 | [entity](../../../../tlab-app/src/auth/entity.rs) | AccountStatus는 REGISTERED·ACTIVE·WITHDRAWN, Identity가 PHC 소유 | 그대로 사용 |
 | [초기 스키마](../../../../tlab-app/migrations/0001_create_tlab_account.sql) | LOCAL의 lower(email) 고유 인덱스, account FK | 기존 인덱스로 조회, migration 없음 |
 | [repository](../../../../tlab-app/src/auth/repository/identity.rs) | account·identity별 insert 제공 | 저장소별 조회 API 추가 |

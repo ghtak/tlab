@@ -21,10 +21,10 @@ use crate::app::{
     error::{InternalFailure, InvalidInput},
 };
 use crate::auth::{
-    create_local_user::usecase::{self as create_local_user, Command, Error},
     entity::{AccountStatus, NewAccount, NewIdentity, Provider},
     passwd_policy::{NonEmptyPasswordPolicy, PasswordPolicy, PasswordPolicyViolation},
     repository::{account, identity},
+    slice::create_local_user::usecase::{self as create_local_user, Command, Error},
 };
 
 fn command(email: &str) -> Command {
@@ -281,7 +281,7 @@ async fn check_local_user_contracts(test_url: String) {
     let container = Arc::new(container(test_url).await);
     let mut conn = container.database.conn().await.unwrap();
     sqlx::raw_sql(include_str!(
-        "../../../migrations/0001_create_tlab_account.sql"
+        "../../../../migrations/0001_create_tlab_account.sql"
     ))
     .execute(conn.context().backend())
     .await
