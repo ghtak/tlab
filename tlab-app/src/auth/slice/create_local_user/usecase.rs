@@ -87,65 +87,61 @@ pub async fn execute(
         })
     })?;
 
+    {
+        let mut conn = database
+            .conn()
+            .await
+            .map_err(|error| Error::internal("conn", error))?;
+
+        if identity::find_local_by_email(&mut conn.context(), email)
+            .await
+            .map_err(|error| Error::internal("find_local_by_email", error))?
+            .is_some()
+        {
+            return Err(Error::EmailAlreadyExists);
+        }
+    }
+
     let encoded_hash = hash_password(hasher, hash_slots, command.password).await?;
     let mut tx = database
         .tx()
         .await
         .map_err(|error| Error::internal("begin_transaction", error))?;
-    let stored = async {
-        let mut ctx = tx.context();
-        let account = account::insert(
-            &mut ctx,
-            &NewAccount {
-                nickname: nickname.to_owned(),
-                status: AccountStatus::Registered,
-                withdrawn_at: None,
-            },
-        )
-        .await
-        .map_err(|error| ("insert_account", error))?;
-        identity::insert(
-            &mut ctx,
-            &NewIdentity {
-                account_id: account.id,
-                priority: 0,
-                provider: Provider::Local,
-                provider_subject: None,
-                email: email.to_owned(),
-                email_verified_at: None,
-                password_hash: Some(encoded_hash),
-            },
-        )
-        .await
-        .map_err(|error| ("insert_identity", error))?;
-        Ok::<_, (&'static str, tlab::Error)>((account.id, account.status))
-    }
-    .await;
 
-    let (account_id, status) = match stored {
-        Ok(id) => id,
-        Err((stage, error)) => {
-            // Translate this particular storage conflict at the scenario boundary.
-            let duplicate_email = matches!(
-                &error,
-                tlab::Error::DbError(sqlx::Error::Database(db_error))
-                    if db_error.is_unique_violation()
-                        && db_error.constraint() == Some("tlab_account_identity_local_email_key")
-            );
-            tx.rollback()
-                .await
-                .map_err(|error| Error::internal("rollback_transaction", error))?;
-            return Err(if duplicate_email {
-                Error::EmailAlreadyExists
-            } else {
-                Error::internal(stage, error)
-            });
-        }
-    };
+    let mut ctx = tx.context();
+    let account = account::insert(
+        &mut ctx,
+        &NewAccount {
+            nickname: nickname.to_owned(),
+            status: AccountStatus::Registered,
+            withdrawn_at: None,
+        },
+    )
+    .await
+    .map_err(|error| Error::internal("insert_account", error))?;
+    identity::insert(
+        &mut ctx,
+        &NewIdentity {
+            account_id: account.id,
+            priority: 0,
+            provider: Provider::Local,
+            provider_subject: None,
+            email: email.to_owned(),
+            email_verified_at: None,
+            password_hash: Some(encoded_hash),
+        },
+    )
+    .await
+    .map_err(|error| Error::internal("insert_identity", error))?;
+
     tx.commit()
         .await
         .map_err(|error| Error::internal("commit_transaction", error))?;
-    Ok(CreatedLocalUser { account_id, status })
+
+    Ok(CreatedLocalUser {
+        account_id: account.id,
+        status: account.status,
+    })
 }
 
 async fn hash_password(

@@ -375,9 +375,17 @@ async fn check_local_user_contracts(test_url: String) {
         .acquire_many_owned(2)
         .await
         .unwrap();
-    let (status, body) = request(container.clone(), &payload).await;
+    let (status, body) = request(
+        container.clone(),
+        &payload.replace("User@example.com", "busy@example.com"),
+    )
+    .await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(body["code"], "BUSY");
+    let (status, body) = request(container.clone(), &payload).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(body["field"], "email");
+    assert_eq!(body["code"], "EMAIL_ALREADY_EXISTS");
     // Even with no hashing capacity, unsupported text must fail before hashing.
     let nul_payload =
         json!({"nickname":"member\0name", "email":"nul@example.com", "password":"secret"})
@@ -420,10 +428,39 @@ async fn check_local_user_contracts(test_url: String) {
         command("RACE@example.com"),
     );
     let (a, b) = tokio::join!(a, b);
-    assert!(matches!(
-        (&a, &b),
-        (Ok(_), Err(Error::EmailAlreadyExists)) | (Err(Error::EmailAlreadyExists), Ok(_))
-    ));
+    let failure = match (&a, &b) {
+        (Ok(_), Err(error)) | (Err(error), Ok(_)) => error,
+        _ => panic!("exactly one concurrent creation must succeed"),
+    };
+    match failure {
+        Error::EmailAlreadyExists => {}
+        Error::Internal(failure) => {
+            assert_eq!(failure.stage, "insert_identity");
+            assert!(matches!(
+                &failure.cause,
+                tlab::Error::DbError(sqlx::Error::Database(error))
+                    if error.is_unique_violation()
+                        && error.constraint() == Some("tlab_account_identity_local_email_key")
+            ));
+        }
+        _ => panic!("unexpected concurrent creation failure: {failure:?}"),
+    }
+    let retry = create_local_user::execute(
+        &container.database,
+        container.passwd_policy.as_ref(),
+        container.passwd_hasher.clone(),
+        container.passwd_hash_slots.clone(),
+        command("race@example.com"),
+    )
+    .await;
+    assert!(matches!(retry, Err(Error::EmailAlreadyExists)));
+    let mut conn = container.database.conn().await.unwrap();
+    let account_count: i64 = sqlx::query_scalar("SELECT count(*) FROM tlab_account")
+        .fetch_one(conn.context().backend())
+        .await
+        .unwrap();
+    assert_eq!(account_count, 2);
+    drop(conn);
 
     // Repository CRUD accepts provider values; the service owns the LOCAL intent.
     let mut tx = container.database.tx().await.unwrap();
