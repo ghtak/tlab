@@ -65,21 +65,12 @@ impl AccessToken {
 }
 
 pub struct AccessIssuer {
-    key: EncodingKey,
-    issuer: String,
-    audience: String,
+    pub key: EncodingKey,
+    pub issuer: String,
+    pub audience: String,
 }
 
 impl AccessIssuer {
-    #[cfg(test)]
-    pub(crate) fn with_invalid_signing_key() -> Self {
-        Self {
-            key: EncodingKey::from_ed_der(b"invalid key"),
-            issuer: "test-issuer".into(),
-            audience: "test-audience".into(),
-        }
-    }
-
     pub fn new(material: &Ed25519Material, issuer: &str, audience: &str) -> Result<Self, Error> {
         validate_config(issuer, audience)?;
         Ok(Self {

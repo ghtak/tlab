@@ -13,7 +13,7 @@ use crate::{
     auth::{
         entity::{Account, NewRefreshToken},
         repository::{account, identity, refresh_token},
-        token::{AccessIssuer, AccessToken, RefreshToken},
+        token::{AccessToken, RefreshToken},
     },
 };
 
@@ -56,18 +56,37 @@ pub struct LocalLogin {
     hasher: Arc<dyn PasswordHasher>,
     slots: Arc<Semaphore>,
     dummy_password_hash: Arc<str>,
+    access_issuer: Arc<crate::auth::token::AccessIssuer>,
 }
 
 impl LocalLogin {
+    pub async fn new(
+        hasher: Arc<dyn PasswordHasher>,
+        slots: Arc<Semaphore>,
+        access_issuer: Arc<crate::auth::token::AccessIssuer>,
+    ) -> tlab::Result<Self> {
+        let dummy_hasher = hasher.clone();
+        let dummy_password_hash =
+            tokio::task::spawn_blocking(move || dummy_hasher.hash("local-login-dummy-password"))
+                .await
+                .map_err(|error| tlab::Error::Internal(error.into()))??
+                .into();
+        Ok(Self {
+            hasher,
+            slots,
+            dummy_password_hash,
+            access_issuer,
+        })
+    }
+
     /// Authenticate outside the lock, then serialize issuance with account changes.
     #[allow(dead_code, reason = "Token response is connected in API step 6")]
     pub async fn execute_with_tokens(
         &self,
         database: &Database,
         command: Command,
-        issuer: &AccessIssuer,
     ) -> Result<LoginTokens, Error> {
-        self.execute_with_prepared_tokens(database, command, issuer, |_| Ok(()))
+        self.execute_with_prepared_tokens(database, command, |_| Ok(()))
             .await
             .map(|(tokens, ())| tokens)
     }
@@ -78,7 +97,6 @@ impl LocalLogin {
         &self,
         database: &Database,
         command: Command,
-        issuer: &AccessIssuer,
         prepare: impl FnOnce(&LoginTokens) -> Result<T, Error>,
     ) -> Result<(LoginTokens, T), Error> {
         let authenticated = self.execute(database, command).await?;
@@ -122,7 +140,8 @@ impl LocalLogin {
         .await
         .map_err(|e| Error::internal("refresh_insert", e))?;
         let user = crate::auth::session_policy::user_claim(&account);
-        let access = issuer
+        let access = self
+            .access_issuer
             .issue(&account.id.to_string(), sid, user, timestamp)
             .map_err(|e| Error::internal("access_sign", tlab::Error::Internal(e.into())))?;
         let tokens = LoginTokens {
@@ -143,19 +162,6 @@ impl LocalLogin {
             .await
             .map_err(|e| Error::internal("login_commit", e))?;
         Ok((tokens, prepared))
-    }
-    pub async fn new(hasher: Arc<dyn PasswordHasher>, slots: Arc<Semaphore>) -> tlab::Result<Self> {
-        let dummy_hasher = hasher.clone();
-        let dummy_password_hash =
-            tokio::task::spawn_blocking(move || dummy_hasher.hash("local-login-dummy-password"))
-                .await
-                .map_err(|error| tlab::Error::Internal(error.into()))??
-                .into();
-        Ok(Self {
-            hasher,
-            slots,
-            dummy_password_hash,
-        })
     }
 
     pub async fn execute(&self, database: &Database, command: Command) -> Result<Account, Error> {

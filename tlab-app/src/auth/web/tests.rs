@@ -25,13 +25,15 @@ async fn container(database: app::db::Database) -> Arc<Container> {
     .unwrap();
     config.server.http.bind = "127.0.0.1:0".parse().unwrap();
     config.server.https = config.server.http.clone();
+    let (access_issuer, verifier) = token_keys();
+    let access_issuer = Arc::new(access_issuer);
     let hasher: Arc<dyn PasswordHasher> =
         Arc::new(tlab::password::argon2id::Hasher::new(&config.passwd_hasher).unwrap());
     let slots = Arc::new(Semaphore::new(2));
-    let local_login = super::super::LocalLogin::new(hasher.clone(), slots.clone())
-        .await
-        .unwrap();
-    let (access_issuer, verifier) = token_keys();
+    let local_login =
+        super::super::LocalLogin::new(hasher.clone(), slots.clone(), access_issuer.clone())
+            .await
+            .unwrap();
     Arc::new(Container {
         http: tlab::http::Server::new(&config.server.http).await.unwrap(),
         https: tlab::http::Server::new(&config.server.https).await.unwrap(),

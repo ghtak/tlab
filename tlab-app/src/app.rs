@@ -43,7 +43,7 @@ impl JwtConfig {
     pub fn prepare(
         &self,
     ) -> tlab::Result<(
-        crate::auth::token::AccessIssuer,
+        Arc<crate::auth::token::AccessIssuer>,
         Arc<crate::auth::token::AccessVerifier>,
     )> {
         if self.issuer.trim().is_empty() || self.audience.trim().is_empty() {
@@ -65,7 +65,7 @@ impl JwtConfig {
             &self.audience,
         )
         .map_err(|_| Error::InvalidInput("invalid JWT configuration".into()))?;
-        Ok((issuer, Arc::new(verifier)))
+        Ok((Arc::new(issuer), Arc::new(verifier)))
     }
 }
 
@@ -121,7 +121,7 @@ pub struct Container {
     pub passwd_hash_slots: Arc<Semaphore>,
     pub local_login: crate::auth::LocalLogin,
     pub database: db::Database,
-    pub access_issuer: crate::auth::token::AccessIssuer,
+    pub access_issuer: Arc<crate::auth::token::AccessIssuer>,
     pub access_verifier: Arc<crate::auth::token::AccessVerifier>,
 }
 
@@ -145,8 +145,12 @@ impl Container {
         let passwd_policy = Arc::new(NonEmptyPasswordPolicy);
         let passwd_hash_slots =
             Arc::new(Semaphore::new(config.auth.max_concurrent_password_hashes));
-        let local_login =
-            crate::auth::LocalLogin::new(passwd_hasher.clone(), passwd_hash_slots.clone()).await?;
+        let local_login = crate::auth::LocalLogin::new(
+            passwd_hasher.clone(),
+            passwd_hash_slots.clone(),
+            access_issuer.clone(),
+        )
+        .await?;
         let database = db::Database::new(&config.database).await?;
         Ok(Self {
             config,

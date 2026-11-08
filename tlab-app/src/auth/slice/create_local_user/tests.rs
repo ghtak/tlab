@@ -224,10 +224,13 @@ async fn container(url: String) -> Container {
     config.auth.jwt.public_key = key_dir.path().join("public.pem");
     config.auth.jwt.generate_if_missing = true;
     let (access_issuer, access_verifier) = config.auth.jwt.prepare().unwrap();
-    let local_login =
-        crate::auth::LocalLogin::new(passwd_hasher.clone(), passwd_hash_slots.clone())
-            .await
-            .unwrap();
+    let local_login = crate::auth::LocalLogin::new(
+        passwd_hasher.clone(),
+        passwd_hash_slots.clone(),
+        access_issuer.clone(),
+    )
+    .await
+    .unwrap();
     Container {
         http: tlab::http::Server::new(&config.server.http).await.unwrap(),
         https: tlab::http::Server::new(&config.server.https).await.unwrap(),

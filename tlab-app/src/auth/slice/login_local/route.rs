@@ -28,7 +28,7 @@ pub(crate) async fn login(
         Err(rejection) => response::invalid_json(rejection),
         Ok(Json(command)) => match container
             .local_login
-            .execute_with_tokens(&container.database, command, &container.access_issuer)
+            .execute_with_tokens(&container.database, command)
             .await
         {
             Ok(tokens) => response::success(
@@ -106,27 +106,22 @@ pub(in crate::auth) async fn web_login(
         Err(error) => response::invalid_json(error),
         Ok(Json(command)) => match container
             .local_login
-            .execute_with_prepared_tokens(
-                &container.database,
-                command,
-                &container.access_issuer,
-                |tokens| {
-                    let now = sqlx::types::time::OffsetDateTime::now_utc().unix_timestamp() as u64;
-                    let claims = container
-                        .access_verifier
-                        .verify(tokens.access.expose_secret(), now)
-                        .map_err(|_| {
-                            Error::Internal(crate::app::error::InternalFailure {
-                                stage: "issued_access_verify",
-                                cause: tlab::Error::IllegalState(
-                                    "issued access verification failed".into(),
-                                ),
-                            })
-                        })?;
-                    web::login_cookies(&container.config.auth.web, tokens, &claims)
-                        .map_err(|_| Error::TokenResponseTooLarge)
-                },
-            )
+            .execute_with_prepared_tokens(&container.database, command, |tokens| {
+                let now = sqlx::types::time::OffsetDateTime::now_utc().unix_timestamp() as u64;
+                let claims = container
+                    .access_verifier
+                    .verify(tokens.access.expose_secret(), now)
+                    .map_err(|_| {
+                        Error::Internal(crate::app::error::InternalFailure {
+                            stage: "issued_access_verify",
+                            cause: tlab::Error::IllegalState(
+                                "issued access verification failed".into(),
+                            ),
+                        })
+                    })?;
+                web::login_cookies(&container.config.auth.web, tokens, &claims)
+                    .map_err(|_| Error::TokenResponseTooLarge)
+            })
             .await
         {
             Ok((tokens, prepared)) => {

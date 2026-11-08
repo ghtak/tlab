@@ -5,8 +5,9 @@ use crate::auth::{
     test_support::{isolated, session_setup as setup, token_keys as keys},
     token::AccessIssuer,
 };
+use jsonwebtoken::EncodingKey;
 use sqlx::types::time::OffsetDateTime;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 #[tokio::test]
 #[ignore = "requires PostgreSQL and TLAB_TEST_DATABASE_URL"]
@@ -148,8 +149,12 @@ async fn refresh_does_not_wait_for_uncommitted_logout() {
 async fn signing_and_revocation_failure_do_not_return_success_or_persist() {
     isolated(|db| async move {
         let (_, secret, _) = setup(&db).await;
-        let issuer = AccessIssuer::with_invalid_signing_key();
-        assert!(matches!(refresh_access_token::execute(&db, secret.expose_secret(), &issuer).await, Err(refresh_access_token::Error::Internal(_))));
+        let invalid_issuer = Arc::new(AccessIssuer{
+            key: EncodingKey::from_ed_der(b"invalid key"),
+            issuer: "test-issuer".into(),
+            audience: "test-audience".into(),
+        });
+        assert!(matches!(refresh_access_token::execute(&db, secret.expose_secret(), &invalid_issuer).await, Err(refresh_access_token::Error::Internal(_))));
         let mut conn = db.conn().await.unwrap();
         sqlx::raw_sql("CREATE FUNCTION reject_revoke() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'failure'; END $$; CREATE TRIGGER reject_revoke BEFORE UPDATE ON tlab_auth_refresh_token FOR EACH ROW EXECUTE FUNCTION reject_revoke();").execute(conn.context().backend()).await.unwrap();
         drop(conn);

@@ -8,6 +8,7 @@ use axum::{
     http::{Request, StatusCode},
     response::IntoResponse,
 };
+use jsonwebtoken::EncodingKey;
 use serde_json::{Value, json};
 use tlab::password::{PasswordHasher, argon2id};
 use tokio::{
@@ -19,7 +20,7 @@ use tower::ServiceExt;
 use super::usecase::{self, Error, verify_password};
 use crate::{
     app::{self, Container},
-    auth::passwd_policy::NonEmptyPasswordPolicy,
+    auth::{LocalLogin, passwd_policy::NonEmptyPasswordPolicy, token::AccessIssuer},
 };
 
 struct Gate {
@@ -231,9 +232,10 @@ async fn fixture(url: String) -> (Arc<Container>, Value, i64) {
     config.auth.jwt.public_key = key_dir.path().join("public.pem");
     config.auth.jwt.generate_if_missing = true;
     let (access_issuer, access_verifier) = config.auth.jwt.prepare().unwrap();
-    let local_login = usecase::LocalLogin::new(hasher.clone(), slots.clone())
-        .await
-        .unwrap();
+    let local_login =
+        usecase::LocalLogin::new(hasher.clone(), slots.clone(), access_issuer.clone())
+            .await
+            .unwrap();
     let container = Arc::new(Container {
         http: tlab::http::Server::new(&config.server.http).await.unwrap(),
         https: tlab::http::Server::new(&config.server.https).await.unwrap(),
@@ -398,16 +400,21 @@ async fn login_issues_independent_sessions() {
         )
         .unwrap();
         let mut sessions = Vec::new();
+        let local_login = LocalLogin::new(
+            container.passwd_hasher.clone(),
+            container.passwd_hash_slots.clone(),
+            Arc::new(issuer),
+        )
+        .await
+        .unwrap();
         for _ in 0..2 {
-            let result = container
-                .local_login
+            let result = local_login
                 .execute_with_tokens(
                     &container.database,
                     usecase::Command {
                         email: "User@example.com".into(),
                         password: " secret ".into(),
                     },
-                    &issuer,
                 )
                 .await
                 .unwrap();
@@ -456,8 +463,13 @@ async fn login_signing_insert_and_commit_failures() {
         }
         .load()
         .unwrap();
-        let issuer =
-            crate::auth::token::AccessIssuer::new(&material, "test-issuer", "test-audience").unwrap();
+        let valid_issuer =
+            Arc::new(AccessIssuer::new(&material, "test-issuer", "test-audience").unwrap());
+        let invalid_issuer = Arc::new(AccessIssuer{
+            key: EncodingKey::from_ed_der(b"invalid key"),
+            issuer: "test-issuer".into(),
+            audience: "test-audience".into(),
+        });
         let _verifier = crate::auth::token::AccessVerifier::new(
             material.public_key_pem(),
             "test-issuer",
@@ -468,12 +480,12 @@ async fn login_signing_insert_and_commit_failures() {
             email: "User@example.com".into(),
             password: " secret ".into(),
         };
-        let failed = container
-            .local_login
+
+        let local_login = LocalLogin::new(container.passwd_hasher.clone(), container.passwd_hash_slots.clone(), invalid_issuer.clone()).await.unwrap();
+        let failed = local_login
             .execute_with_tokens(
                 &container.database,
                 command(),
-                &crate::auth::token::AccessIssuer::with_invalid_signing_key(),
             )
             .await;
         assert!(matches!(failed, Err(Error::Internal(ref e)) if e.stage == "access_sign"));
@@ -495,9 +507,10 @@ async fn login_signing_insert_and_commit_failures() {
                 .await
                 .unwrap();
             drop(conn);
-            let failed = container
-                .local_login
-                .execute_with_tokens(&container.database, command(), &issuer)
+
+            let local_login = LocalLogin::new(container.passwd_hasher.clone(), container.passwd_hash_slots.clone(), valid_issuer.clone()).await.unwrap();
+            let failed = local_login
+                .execute_with_tokens(&container.database, command())
                 .await;
             assert!(matches!(failed, Err(Error::Internal(ref e)) if e.stage == stage));
             let mut conn = container.database.conn().await.unwrap();
@@ -552,15 +565,15 @@ async fn login_rechecks_account_after_withdrawal_lock() {
             let issuer =
                 crate::auth::token::AccessIssuer::new(&login_material, "test-issuer", "test-audience")
                     .unwrap();
-            login_container
-                .local_login
+
+            let local_login = LocalLogin::new(login_container.passwd_hasher.clone(), login_container.passwd_hash_slots.clone() , Arc::new(issuer)).await.unwrap();
+            local_login
                 .execute_with_tokens(
                     &login_container.database,
                     usecase::Command {
                         email: "User@example.com".into(),
                         password: " secret ".into(),
                     },
-                    &issuer,
                 )
                 .await
         });
