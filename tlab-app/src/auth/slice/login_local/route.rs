@@ -1,14 +1,15 @@
+use axum::response::IntoResponse;
 use std::sync::Arc;
 
 use axum::{
     Json,
     extract::{State, rejection::JsonRejection},
     http::{HeaderValue, StatusCode, header::CACHE_CONTROL},
-    response::{IntoResponse, Response},
+    response::Response,
 };
 
-use super::usecase::{self, Error};
-use crate::app::error::InvalidInput;
+use super::usecase;
+use crate::app::error::AppError;
 use crate::app::{Container, response};
 use crate::auth::entity::AccountStatus;
 
@@ -53,47 +54,6 @@ fn no_store(mut response: Response) -> Response {
     response
 }
 
-impl IntoResponse for Error {
-    fn into_response(self) -> Response {
-        no_store(match self {
-            Error::InvalidInput(InvalidInput {
-                field,
-                code,
-                message,
-            }) => response::error(StatusCode::BAD_REQUEST, code, Some(field), message),
-            Error::InvalidCredentials => response::error(
-                StatusCode::UNAUTHORIZED,
-                "INVALID_CREDENTIALS",
-                None,
-                "email or password is incorrect",
-            ),
-            Error::AccountUnavailable => response::error(
-                StatusCode::FORBIDDEN,
-                "ACCOUNT_UNAVAILABLE",
-                None,
-                "account is unavailable",
-            ),
-            Error::Busy => {
-                tracing::warn!(
-                    operation = "login_local",
-                    stage = "hash_capacity",
-                    "password verification is busy"
-                );
-                response::error(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "BUSY",
-                    None,
-                    "password verification is busy",
-                )
-            }
-            Error::Internal(failure) => {
-                tracing::error!(operation = "login_local", stage = failure.stage, cause = ?failure.cause, "local login failed");
-                response::internal_error("local login failed")
-            }
-        })
-    }
-}
-
 /// Web transport prepares cookies after token issuance commits and never returns secrets in JSON.
 pub(in crate::auth) async fn web_login(
     State(container): State<Arc<Container>>,
@@ -117,12 +77,13 @@ pub(in crate::auth) async fn web_login(
                     Ok(claims) => claims,
                     Err(_) => {
                         return web::no_store(
-                            Error::Internal(crate::app::error::InternalFailure {
-                                stage: "issued_access_verify",
-                                cause: tlab::Error::IllegalState(
+                            AppError::internal(
+                                "issued_access_verify",
+                                "local login failed",
+                                tlab::Error::IllegalState(
                                     "issued access verification failed".into(),
                                 ),
-                            })
+                            )
                             .into_response(),
                         );
                     }

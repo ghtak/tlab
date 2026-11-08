@@ -8,7 +8,7 @@ use tokio::sync::{Semaphore, TryAcquireError};
 use crate::{
     app::{
         db::Database,
-        error::{InternalFailure, InvalidInput},
+        error::{AppError, AppErrorCode},
     },
     auth::{
         entity::{Account, NewRefreshToken},
@@ -31,24 +31,6 @@ pub struct LoginTokens {
     pub account: Account,
     pub access: AccessToken,
     pub refresh: RefreshToken,
-}
-
-#[derive(Debug)]
-pub enum Error {
-    InvalidInput(InvalidInput),
-    InvalidCredentials,
-    AccountUnavailable,
-    Busy,
-    Internal(InternalFailure),
-}
-
-impl Error {
-    fn internal(stage: &'static str, cause: impl Into<tlab::Error>) -> Self {
-        Self::Internal(InternalFailure {
-            stage,
-            cause: cause.into(),
-        })
-    }
 }
 
 pub struct LocalLogin {
@@ -84,33 +66,54 @@ impl LocalLogin {
         &self,
         database: &Database,
         command: Command,
-    ) -> Result<LoginTokens, Error> {
+    ) -> Result<LoginTokens, AppError> {
         let authenticated = self.execute(database, command).await?;
         let mut tx = database
             .tx()
             .await
-            .map_err(|e| Error::internal("login_transaction", e))?;
+            .map_err(|e| AppError::internal("login_transaction", "local login failed", e))?;
         let account = account::lock_by_id(&mut tx.context(), authenticated.id)
             .await
-            .map_err(|e| Error::internal("lock_account", e))?
+            .map_err(|e| AppError::internal("lock_account", "local login failed", e))?
             .ok_or_else(|| {
-                Error::internal(
+                AppError::internal(
                     "lock_account",
+                    "local login failed",
                     tlab::Error::IllegalState("identity account is missing".into()),
                 )
             })?;
         if !crate::auth::session_policy::allowed(&account) {
-            return Err(Error::AccountUnavailable);
+            return Err(AppError::new(
+                AppErrorCode::AccountUnavailable,
+                "account is unavailable",
+                "account_status",
+            ));
         }
         let now = sqlx::types::time::OffsetDateTime::now_utc()
             .replace_nanosecond(0)
-            .map_err(|e| Error::internal("login_clock", tlab::Error::Internal(e.into())))?;
-        let timestamp = u64::try_from(now.unix_timestamp())
-            .map_err(|e| Error::internal("login_clock", tlab::Error::Internal(e.into())))?;
+            .map_err(|e| {
+                AppError::internal(
+                    "login_clock",
+                    "local login failed",
+                    tlab::Error::Internal(e.into()),
+                )
+            })?;
+        let timestamp = u64::try_from(now.unix_timestamp()).map_err(|e| {
+            AppError::internal(
+                "login_clock",
+                "local login failed",
+                tlab::Error::Internal(e.into()),
+            )
+        })?;
         let expires = now + std::time::Duration::from_secs(168 * 3600);
         let sid = uuid::Uuid::new_v4();
-        let refresh = RefreshToken::generate()
-            .map_err(|e| Error::internal("refresh_generate", tlab::Error::Internal(e.into())))?;
+        let refresh = RefreshToken::generate().map_err(|e| {
+            AppError::internal(
+                "refresh_generate",
+                "local login failed",
+                tlab::Error::Internal(e.into()),
+            )
+        })?;
         refresh_token::insert(
             &mut tx.context(),
             &NewRefreshToken {
@@ -124,12 +127,18 @@ impl LocalLogin {
             },
         )
         .await
-        .map_err(|e| Error::internal("refresh_insert", e))?;
+        .map_err(|e| AppError::internal("refresh_insert", "local login failed", e))?;
         let user = crate::auth::session_policy::user_claim(&account);
         let access = self
             .access_issuer
             .issue(&account.id.to_string(), sid, user, timestamp)
-            .map_err(|e| Error::internal("access_sign", tlab::Error::Internal(e.into())))?;
+            .map_err(|e| {
+                AppError::internal(
+                    "access_sign",
+                    "local login failed",
+                    tlab::Error::Internal(e.into()),
+                )
+            })?;
         let tokens = LoginTokens {
             account,
             access,
@@ -137,44 +146,49 @@ impl LocalLogin {
         };
         tx.commit()
             .await
-            .map_err(|e| Error::internal("login_commit", e))?;
+            .map_err(|e| AppError::internal("login_commit", "local login failed", e))?;
         Ok(tokens)
     }
 
-    pub async fn execute(&self, database: &Database, command: Command) -> Result<Account, Error> {
+    pub async fn execute(
+        &self,
+        database: &Database,
+        command: Command,
+    ) -> Result<Account, AppError> {
         let email = command.email.trim();
         if EmailAddress::parse_with_options(email, Options::default().without_display_text())
             .is_err()
         {
-            return Err(Error::InvalidInput(InvalidInput {
-                field: "email",
-                code: "INVALID_EMAIL",
-                message: "email must be a single email address",
-            }));
+            return Err(AppError::new(
+                AppErrorCode::InvalidEmail,
+                "email must be a single email address",
+                "validate_input",
+            ));
         }
         if command.password.is_empty() {
-            return Err(Error::InvalidInput(InvalidInput {
-                field: "password",
-                code: "PASSWORD_REQUIRED",
-                message: "password must not be empty",
-            }));
+            return Err(AppError::new(
+                AppErrorCode::PasswordRequired,
+                "password must not be empty",
+                "validate_input",
+            ));
         }
         let identity = {
             let mut conn = database
                 .conn()
                 .await
-                .map_err(|e| Error::internal("identity_connection", e))?;
+                .map_err(|e| AppError::internal("identity_connection", "local login failed", e))?;
             identity::find_local_by_email(&mut conn.context(), email)
                 .await
-                .map_err(|e| Error::internal("find_identity", e))?
+                .map_err(|e| AppError::internal("find_identity", "local login failed", e))?
         };
         let encoded_hash = match identity.as_ref() {
             Some(identity) => identity
                 .password_hash
                 .as_deref()
                 .ok_or_else(|| {
-                    Error::internal(
+                    AppError::internal(
                         "password_hash",
+                        "local login failed",
                         tlab::Error::IllegalState("LOCAL identity has no password hash".into()),
                     )
                 })?
@@ -188,28 +202,35 @@ impl LocalLogin {
             encoded_hash,
         )
         .await?;
-        let identity = identity
-            .filter(|_| verified)
-            .ok_or(Error::InvalidCredentials)?;
+        let identity = identity.filter(|_| verified).ok_or(AppError::new(
+            AppErrorCode::InvalidCredentials,
+            "email or password is incorrect",
+            "verify_credentials",
+        ))?;
         let account = {
             let mut conn = database
                 .conn()
                 .await
-                .map_err(|e| Error::internal("account_connection", e))?;
+                .map_err(|e| AppError::internal("account_connection", "local login failed", e))?;
             account::find_by_id(&mut conn.context(), identity.account_id)
                 .await
-                .map_err(|e| Error::internal("find_account", e))?
+                .map_err(|e| AppError::internal("find_account", "local login failed", e))?
         }
         .ok_or_else(|| {
-            Error::internal(
+            AppError::internal(
                 "find_account",
+                "local login failed",
                 tlab::Error::IllegalState("identity account is missing".into()),
             )
         })?;
         if crate::auth::session_policy::allowed(&account) {
             Ok(account)
         } else {
-            Err(Error::AccountUnavailable)
+            Err(AppError::new(
+                AppErrorCode::AccountUnavailable,
+                "account is unavailable",
+                "account_status",
+            ))
         }
     }
 }
@@ -219,12 +240,18 @@ pub(super) async fn verify_password(
     slots: Arc<Semaphore>,
     password: String,
     encoded_hash: Arc<str>,
-) -> Result<bool, Error> {
+) -> Result<bool, AppError> {
     let permit = slots.try_acquire_owned().map_err(|error| match error {
-        TryAcquireError::NoPermits => Error::Busy,
-        TryAcquireError::Closed => {
-            Error::internal("hash_capacity", tlab::Error::Internal(error.into()))
-        }
+        TryAcquireError::NoPermits => AppError::new(
+            AppErrorCode::Busy,
+            "password verification is busy",
+            "hash_capacity",
+        ),
+        TryAcquireError::Closed => AppError::internal(
+            "hash_capacity",
+            "local login failed",
+            tlab::Error::Internal(error.into()),
+        ),
     })?;
     tokio::task::spawn_blocking(move || {
         // Cancellation must not release capacity while blocking work still runs.
@@ -232,6 +259,12 @@ pub(super) async fn verify_password(
         hasher.verify(&password, &encoded_hash)
     })
     .await
-    .map_err(|e| Error::internal("verify_task", tlab::Error::Internal(e.into())))?
-    .map_err(|e| Error::internal("password_verify", e))
+    .map_err(|e| {
+        AppError::internal(
+            "verify_task",
+            "local login failed",
+            tlab::Error::Internal(e.into()),
+        )
+    })?
+    .map_err(|e| AppError::internal("password_verify", "local login failed", e))
 }

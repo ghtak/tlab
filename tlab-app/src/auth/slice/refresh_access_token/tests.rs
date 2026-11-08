@@ -1,3 +1,4 @@
+use crate::app::error::{AppError, AppErrorCode};
 use crate::auth::{
     entity::RevokeReason,
     repository::{account, refresh_token},
@@ -58,7 +59,7 @@ async fn expiry_rejection_and_invalid_states() {
         let (issuer, _) = keys();
         assert!(matches!(
             refresh_access_token::execute(&db, "missing", &issuer).await,
-            Err(refresh_access_token::Error::InvalidRefresh)
+            Err(AppError { code: AppErrorCode::InvalidRefreshToken, .. })
         ));
         let mut conn = db.conn().await.unwrap();
         // Permit deliberately independent expiry values to exercise both guards.
@@ -73,7 +74,7 @@ async fn expiry_rejection_and_invalid_states() {
                 .unwrap();
             assert!(matches!(
                 refresh_access_token::execute(&db, secret.expose_secret(), &issuer).await,
-                Err(refresh_access_token::Error::InvalidRefresh)
+                Err(AppError { code: AppErrorCode::InvalidRefreshToken, .. })
             ));
             let sql =
                 format!("UPDATE tlab_auth_refresh_token SET {column}=now() + interval '1 day'");
@@ -89,14 +90,14 @@ async fn expiry_rejection_and_invalid_states() {
             .unwrap();
         assert!(matches!(
             refresh_access_token::execute(&db, secret.expose_secret(), &issuer).await,
-            Err(refresh_access_token::Error::InvalidRefresh)
+            Err(AppError { code: AppErrorCode::InvalidRefreshToken, .. })
         ));
         logout::execute(&db, secret.expose_secret())
             .await
             .unwrap();
         assert!(matches!(
             refresh_access_token::execute(&db, secret.expose_secret(), &issuer).await,
-            Err(refresh_access_token::Error::InvalidRefresh)
+            Err(AppError { code: AppErrorCode::InvalidRefreshToken, .. })
         ));
     })
     .await;
@@ -138,7 +139,10 @@ async fn refresh_does_not_wait_for_uncommitted_logout() {
             .unwrap();
         assert!(matches!(
             refresh_access_token::execute(&db, secret.expose_secret(), &issuer).await,
-            Err(refresh_access_token::Error::InvalidRefresh)
+            Err(AppError {
+                code: AppErrorCode::InvalidRefreshToken,
+                ..
+            })
         ));
     })
     .await;
@@ -154,11 +158,11 @@ async fn signing_and_revocation_failure_do_not_return_success_or_persist() {
             issuer: "test-issuer".into(),
             audience: "test-audience".into(),
         });
-        assert!(matches!(refresh_access_token::execute(&db, secret.expose_secret(), &invalid_issuer).await, Err(refresh_access_token::Error::Internal(_))));
+        assert!(matches!(refresh_access_token::execute(&db, secret.expose_secret(), &invalid_issuer).await, Err(AppError { code: AppErrorCode::InternalError, .. })));
         let mut conn = db.conn().await.unwrap();
         sqlx::raw_sql("CREATE FUNCTION reject_revoke() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'failure'; END $$; CREATE TRIGGER reject_revoke BEFORE UPDATE ON tlab_auth_refresh_token FOR EACH ROW EXECUTE FUNCTION reject_revoke();").execute(conn.context().backend()).await.unwrap();
         drop(conn);
-        assert!(matches!(logout::execute(&db, secret.expose_secret()).await, Err(logout::Error::Internal(_))));
+        assert!(matches!(logout::execute(&db, secret.expose_secret()).await, Err(AppError { code: AppErrorCode::InternalError, .. })));
         let mut conn = db.conn().await.unwrap();
         assert!(refresh_token::find_by_hash(&mut conn.context(), &secret.hash()).await.unwrap().unwrap().revoked_at.is_none());
     }).await;
@@ -174,7 +178,7 @@ async fn seven_day_session_boundary() {
         sqlx::query("UPDATE tlab_auth_refresh_token SET session_created_at=now()-interval '167 hours 59 minutes', created_at=now()-interval '167 hours 59 minutes', session_expires_at=now()+interval '1 minute', expires_at=now()+interval '1 minute'").execute(conn.context().backend()).await.unwrap();
         assert!(refresh_access_token::execute(&db, secret.expose_secret(), &issuer).await.is_ok());
         sqlx::query("UPDATE tlab_auth_refresh_token SET session_created_at=now()-interval '168 hours 1 minute', created_at=now()-interval '168 hours 1 minute', session_expires_at=now()-interval '1 minute', expires_at=now()-interval '1 minute'").execute(conn.context().backend()).await.unwrap();
-        assert!(matches!(refresh_access_token::execute(&db, secret.expose_secret(), &issuer).await, Err(refresh_access_token::Error::InvalidRefresh)));
+        assert!(matches!(refresh_access_token::execute(&db, secret.expose_secret(), &issuer).await, Err(AppError { code: AppErrorCode::InvalidRefreshToken, .. })));
         logout::execute(&db, secret.expose_secret()).await.unwrap();
         logout::execute(&db, secret.expose_secret()).await.unwrap();
     }).await;
@@ -200,14 +204,20 @@ async fn concurrent_logout_and_refresh_leave_session_revoked() {
                     )
                     .unwrap();
             }
-            Err(refresh_access_token::Error::InvalidRefresh) => {}
-            Err(refresh_access_token::Error::Internal(error)) => {
+            Err(AppError {
+                code: AppErrorCode::InvalidRefreshToken,
+                ..
+            }) => {}
+            Err(error) => {
                 panic!("unexpected refresh failure: {error:?}")
             }
         }
         assert!(matches!(
             refresh_access_token::execute(&db, secret.expose_secret(), &issuer).await,
-            Err(refresh_access_token::Error::InvalidRefresh)
+            Err(AppError {
+                code: AppErrorCode::InvalidRefreshToken,
+                ..
+            })
         ));
     })
     .await;
@@ -222,7 +232,10 @@ async fn revoked_refresh_is_rejected_for_active_account() {
         logout::execute(&db, secret.expose_secret()).await.unwrap();
         assert!(matches!(
             refresh_access_token::execute(&db, secret.expose_secret(), &issuer).await,
-            Err(refresh_access_token::Error::InvalidRefresh)
+            Err(AppError {
+                code: AppErrorCode::InvalidRefreshToken,
+                ..
+            })
         ));
     })
     .await;
@@ -249,6 +262,6 @@ async fn refresh_read_before_logout_can_finish_after_logout_commits() {
         holder.commit().await.unwrap();
         let access = tokio::time::timeout(Duration::from_secs(3), &mut pending).await.unwrap().unwrap();
         verifier.verify(access.expose_secret(), OffsetDateTime::now_utc().unix_timestamp() as u64).unwrap();
-        assert!(matches!(refresh_access_token::execute(&db, secret.expose_secret(), &issuer).await, Err(refresh_access_token::Error::InvalidRefresh)));
+        assert!(matches!(refresh_access_token::execute(&db, secret.expose_secret(), &issuer).await, Err(AppError { code: AppErrorCode::InvalidRefreshToken, .. })));
     }).await;
 }

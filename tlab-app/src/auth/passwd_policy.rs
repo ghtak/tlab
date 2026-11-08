@@ -1,3 +1,5 @@
+use crate::app::error::AppErrorCode;
+
 /// Application password rules, independent of the hashing algorithm.
 pub trait PasswordPolicy: Send + Sync {
     fn validate(&self, password: &str) -> Result<(), PasswordPolicyViolation>;
@@ -5,7 +7,7 @@ pub trait PasswordPolicy: Send + Sync {
 
 #[derive(Debug)]
 pub struct PasswordPolicyViolation {
-    pub code: &'static str,
+    pub code: AppErrorCode,
     pub message: &'static str,
 }
 
@@ -15,7 +17,7 @@ impl PasswordPolicy for NonEmptyPasswordPolicy {
     fn validate(&self, password: &str) -> Result<(), PasswordPolicyViolation> {
         if password.is_empty() {
             return Err(PasswordPolicyViolation {
-                code: "PASSWORD_REQUIRED",
+                code: AppErrorCode::PasswordRequired,
                 message: "password must not be empty",
             });
         }

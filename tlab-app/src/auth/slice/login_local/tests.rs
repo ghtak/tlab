@@ -1,3 +1,4 @@
+use crate::app::error::{AppError, AppErrorCode};
 use std::{
     sync::{Arc, Condvar, Mutex},
     time::{SystemTime, UNIX_EPOCH},
@@ -17,7 +18,7 @@ use tokio::{
 };
 use tower::ServiceExt;
 
-use super::usecase::{self, Error, verify_password};
+use super::usecase::{self, verify_password};
 use crate::{
     app::{self, Container},
     auth::{LocalLogin, passwd_policy::NonEmptyPasswordPolicy, token::AccessIssuer},
@@ -90,7 +91,10 @@ async fn cancellation_keeps_verification_capacity_until_blocking_work_finishes()
             "hash".into()
         )
         .await,
-        Err(Error::Busy)
+        Err(AppError {
+            code: AppErrorCode::Busy,
+            ..
+        })
     ));
     gate.release();
     let permit = timeout(Duration::from_secs(5), slots.acquire())
@@ -101,7 +105,10 @@ async fn cancellation_keeps_verification_capacity_until_blocking_work_finishes()
     slots.close();
     assert!(matches!(
         verify_password(hasher, slots, "secret".into(), "hash".into()).await,
-        Err(Error::Internal(_))
+        Err(AppError {
+            code: AppErrorCode::InternalError,
+            ..
+        })
     ));
 }
 
@@ -130,15 +137,19 @@ async fn verifier_errors_and_panics_are_internal_and_release_capacity() {
         )
         .await
         .unwrap_err();
-        let Error::Internal(failure) = &error else {
+        let failure @ AppError {
+            code: AppErrorCode::InternalError,
+            ..
+        } = &error
+        else {
             panic!("expected internal failure: {error:?}");
         };
         if panic {
             assert_eq!(failure.stage, "verify_task");
-            assert!(matches!(failure.cause, tlab::Error::Internal(_)));
+            assert!(matches!(failure.cause, Some(tlab::Error::Internal(_))));
         } else {
             assert_eq!(failure.stage, "password_verify");
-            assert!(matches!(failure.cause, tlab::Error::IllegalState(_)));
+            assert!(matches!(failure.cause, Some(tlab::Error::IllegalState(_))));
         }
         assert_eq!(slots.available_permits(), 1);
         let response = error.into_response();
@@ -488,7 +499,7 @@ async fn login_signing_insert_and_commit_failures() {
                 command(),
             )
             .await;
-        assert!(matches!(failed, Err(Error::Internal(ref e)) if e.stage == "access_sign"));
+        assert!(matches!(failed, Err(e @ AppError { code: AppErrorCode::InternalError, .. }) if e.stage == "access_sign"));
         for (trigger, stage) in [
             (
                 "CREATE TRIGGER fail_login BEFORE INSERT ON tlab_auth_refresh_token FOR EACH ROW EXECUTE FUNCTION fail_login()",
@@ -512,7 +523,7 @@ async fn login_signing_insert_and_commit_failures() {
             let failed = local_login
                 .execute_with_tokens(&container.database, command())
                 .await;
-            assert!(matches!(failed, Err(Error::Internal(ref e)) if e.stage == stage));
+            assert!(matches!(failed, Err(e @ AppError { code: AppErrorCode::InternalError, .. }) if e.stage == stage));
             let mut conn = container.database.conn().await.unwrap();
             let count: i64 = sqlx::query_scalar("SELECT count(*) FROM tlab_auth_refresh_token")
                 .fetch_one(conn.context().backend())
@@ -589,7 +600,7 @@ async fn login_rechecks_account_after_withdrawal_lock() {
         withdrawal.commit().await.unwrap();
         assert!(matches!(
             waiting.await.unwrap(),
-            Err(Error::AccountUnavailable)
+            Err(AppError { code: AppErrorCode::AccountUnavailable, .. })
         ));
         let mut conn = container.database.conn().await.unwrap();
         let count: i64 = sqlx::query_scalar("SELECT count(*) FROM tlab_auth_refresh_token")

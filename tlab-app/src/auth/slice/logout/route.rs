@@ -1,3 +1,4 @@
+use axum::response::IntoResponse;
 use std::sync::Arc;
 
 use axum::{
@@ -24,27 +25,13 @@ pub(in crate::auth) async fn logout(
         Ok(Json(input)) => {
             match super::usecase::execute(&container.database, &input.refresh_token).await {
                 Ok(()) => crate::app::response::success(StatusCode::OK, serde_json::json!({})),
-                Err(e) => operation_error(e),
+                Err(e) => e.into_response(),
             }
         }
     };
     no_store(response)
 }
 
-fn operation_error(error: super::usecase::Error) -> Response {
-    match error {
-        super::usecase::Error::InvalidRefresh => crate::app::response::error(
-            StatusCode::UNAUTHORIZED,
-            "INVALID_REFRESH_TOKEN",
-            None,
-            "refresh token rejected",
-        ),
-        super::usecase::Error::Internal(failure) => {
-            tracing::error!(operation = "logout", stage = failure.stage, cause = ?failure.cause, "refresh operation failed");
-            crate::app::response::internal_error("refresh operation failed")
-        }
-    }
-}
 fn no_store(mut response: Response) -> Response {
     response
         .headers_mut()
@@ -61,10 +48,12 @@ pub(in crate::auth) async fn web_logout(
         None => crate::app::response::success(StatusCode::OK, serde_json::json!({})),
         Some(refresh) => {
             match super::usecase::execute(&container.database, refresh.value()).await {
-                Ok(()) | Err(super::usecase::Error::InvalidRefresh) => {
-                    crate::app::response::success(StatusCode::OK, serde_json::json!({}))
-                }
-                Err(error) => return web::no_store(operation_error(error)),
+                Ok(())
+                | Err(crate::app::error::AppError {
+                    code: crate::app::error::AppErrorCode::InvalidRefreshToken,
+                    ..
+                }) => crate::app::response::success(StatusCode::OK, serde_json::json!({})),
+                Err(error) => return web::no_store(error.into_response()),
             }
         }
     };

@@ -1,32 +1,26 @@
 use crate::{
-    app::{db::Database, error::InternalFailure},
+    app::{
+        db::Database,
+        error::{AppError, AppErrorCode},
+    },
     auth::{entity::RevokeReason, repository::refresh_token, token::RefreshHash},
 };
 use sqlx::types::time::OffsetDateTime;
 
-#[derive(Debug)]
-pub enum Error {
-    InvalidRefresh,
-    Internal(InternalFailure),
-}
-
-fn internal(stage: &'static str, cause: impl Into<tlab::Error>) -> Error {
-    Error::Internal(InternalFailure {
-        stage,
-        cause: cause.into(),
-    })
-}
-
 /// An existing token identifies its session even if expired or already revoked.
-pub async fn execute(database: &Database, raw: &str) -> Result<(), Error> {
+pub async fn execute(database: &Database, raw: &str) -> Result<(), AppError> {
     let mut tx = database
         .tx()
         .await
-        .map_err(|e| internal("logout_transaction", e))?;
+        .map_err(|e| AppError::internal("logout_transaction", "logout failed", e))?;
     let row = refresh_token::find_by_hash(&mut tx.context(), &RefreshHash::of(raw))
         .await
-        .map_err(|e| internal("find_refresh", e))?
-        .ok_or(Error::InvalidRefresh)?;
+        .map_err(|e| AppError::internal("find_refresh", "logout failed", e))?
+        .ok_or(AppError::new(
+            AppErrorCode::InvalidRefreshToken,
+            "refresh token rejected",
+            "validate_refresh",
+        ))?;
     refresh_token::revoke_session(
         &mut tx.context(),
         row.account_id,
@@ -35,9 +29,9 @@ pub async fn execute(database: &Database, raw: &str) -> Result<(), Error> {
         RevokeReason::Logout,
     )
     .await
-    .map_err(|e| internal("logout_revoke", e))?;
+    .map_err(|e| AppError::internal("logout_revoke", "logout failed", e))?;
     tx.commit()
         .await
-        .map_err(|e| internal("logout_commit", e))?;
+        .map_err(|e| AppError::internal("logout_commit", "logout failed", e))?;
     Ok(())
 }

@@ -1,4 +1,5 @@
 //! Cookie transport and request authentication. Business lifecycle stays in slices.
+use axum::response::IntoResponse;
 use std::sync::Arc;
 
 use axum::{
@@ -32,7 +33,6 @@ pub(super) fn cookie_too_large() -> Response {
     response::error(
         StatusCode::UNPROCESSABLE_ENTITY,
         "AUTH_COOKIE_TOO_LARGE",
-        None,
         "authentication cookie exceeds the size limit",
     )
 }
@@ -132,7 +132,6 @@ fn denied() -> Response {
     response::error(
         StatusCode::UNAUTHORIZED,
         "INVALID_ACCESS_TOKEN",
-        None,
         "authentication required",
     )
 }
@@ -164,7 +163,6 @@ async fn guard(
         response::error(
             StatusCode::FORBIDDEN,
             "CSRF_REJECTED",
-            None,
             "same-origin request required",
         )
     } else if invalid_cookie_header(&request, &container.config.auth.web) {
@@ -250,17 +248,15 @@ async fn authenticate(
                     cookies.add(cookie);
                     claims
                 }
-                Err(slice::refresh_access_token::Error::InvalidRefresh) => {
+                Err(crate::app::error::AppError {
+                    code: crate::app::error::AppErrorCode::InvalidRefreshToken,
+                    ..
+                }) => {
                     clear(&cookies, &container.config.auth.web);
                     return no_store(denied());
                 }
-                Err(slice::refresh_access_token::Error::Internal(failure)) => {
-                    tracing::error!(
-                        operation = "web_refresh",
-                        stage = failure.stage,
-                        "web refresh failed"
-                    );
-                    return no_store(response::internal_error("refresh operation failed"));
+                Err(error) => {
+                    return no_store(error.into_response());
                 }
             }
         }

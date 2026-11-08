@@ -1,3 +1,4 @@
+use crate::app::error::{AppError, AppErrorCode};
 use crate::auth::{
     entity::RevokeReason,
     repository::{account, refresh_token},
@@ -44,7 +45,7 @@ async fn logout_commit_failure_rolls_back() {
         let mut conn = db.conn().await.unwrap();
         sqlx::raw_sql("CREATE FUNCTION reject_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'commit failure'; END $$; CREATE CONSTRAINT TRIGGER reject_commit AFTER UPDATE ON tlab_auth_refresh_token DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_commit();").execute(conn.context().backend()).await.unwrap();
         drop(conn);
-        assert!(matches!(logout::execute(&db, secret.expose_secret()).await, Err(logout::Error::Internal(_))));
+        assert!(matches!(logout::execute(&db, secret.expose_secret()).await, Err(AppError { code: AppErrorCode::InternalError, .. })));
         let mut conn = db.conn().await.unwrap();
         assert!(refresh_token::find_by_hash(&mut conn.context(), &secret.hash()).await.unwrap().unwrap().revoked_at.is_none());
     }).await;
@@ -71,7 +72,10 @@ async fn logout_does_not_wait_for_account_lock() {
         let (issuer, _) = keys();
         assert!(matches!(
             refresh_access_token::execute(&db, secret.expose_secret(), &issuer).await,
-            Err(refresh_access_token::Error::InvalidRefresh)
+            Err(AppError {
+                code: AppErrorCode::InvalidRefreshToken,
+                ..
+            })
         ));
     })
     .await;

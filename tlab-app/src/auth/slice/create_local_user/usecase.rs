@@ -8,7 +8,7 @@ use tokio::sync::{Semaphore, TryAcquireError};
 use crate::{
     app::{
         db::Database,
-        error::{InternalFailure, InvalidInput},
+        error::{AppError, AppErrorCode},
     },
     auth::{
         entity::{AccountStatus, NewAccount, NewIdentity, Provider},
@@ -32,73 +32,58 @@ pub struct CreatedLocalUser {
     pub status: AccountStatus,
 }
 
-#[derive(Debug)]
-pub enum Error {
-    InvalidInput(InvalidInput),
-    EmailAlreadyExists,
-    Busy,
-    Internal(InternalFailure),
-}
-
-impl Error {
-    fn internal(stage: &'static str, error: impl Into<tlab::Error>) -> Self {
-        Self::Internal(InternalFailure {
-            stage,
-            cause: error.into(),
-        })
-    }
-}
-
 pub async fn execute(
     database: &Database,
     policy: &dyn PasswordPolicy,
     hasher: Arc<dyn PasswordHasher>,
     hash_slots: Arc<Semaphore>,
     command: Command,
-) -> Result<CreatedLocalUser, Error> {
+) -> Result<CreatedLocalUser, AppError> {
     let nickname = command.nickname.trim();
     let email = command.email.trim();
     if nickname.is_empty() {
-        return Err(Error::InvalidInput(InvalidInput {
-            field: "nickname",
-            code: "NICKNAME_REQUIRED",
-            message: "nickname must not be empty",
-        }));
+        return Err(AppError::new(
+            AppErrorCode::NicknameRequired,
+            "nickname must not be empty",
+            "validate_input",
+        ));
     }
     if nickname.contains('\0') {
-        return Err(Error::InvalidInput(InvalidInput {
-            field: "nickname",
-            code: "INVALID_NICKNAME",
-            message: "nickname must not contain NUL characters",
-        }));
+        return Err(AppError::new(
+            AppErrorCode::InvalidNickname,
+            "nickname must not contain NUL characters",
+            "validate_input",
+        ));
     }
     if EmailAddress::parse_with_options(email, Options::default().without_display_text()).is_err() {
-        return Err(Error::InvalidInput(InvalidInput {
-            field: "email",
-            code: "INVALID_EMAIL",
-            message: "email must be a single email address",
-        }));
+        return Err(AppError::new(
+            AppErrorCode::InvalidEmail,
+            "email must be a single email address",
+            "validate_input",
+        ));
     }
-    policy.validate(&command.password).map_err(|violation| {
-        Error::InvalidInput(InvalidInput {
-            field: "password",
-            code: violation.code,
-            message: violation.message,
-        })
-    })?;
+    policy
+        .validate(&command.password)
+        .map_err(|violation| AppError::new(violation.code, violation.message, "validate_input"))?;
 
     {
         let mut conn = database
             .conn()
             .await
-            .map_err(|error| Error::internal("conn", error))?;
+            .map_err(|error| AppError::internal("conn", "user creation failed", error))?;
 
         if identity::find_local_by_email(&mut conn.context(), email)
             .await
-            .map_err(|error| Error::internal("find_local_by_email", error))?
+            .map_err(|error| {
+                AppError::internal("find_local_by_email", "user creation failed", error)
+            })?
             .is_some()
         {
-            return Err(Error::EmailAlreadyExists);
+            return Err(AppError::new(
+                AppErrorCode::EmailAlreadyExists,
+                "local email already exists",
+                "find_local_by_email",
+            ));
         }
     }
 
@@ -106,7 +91,7 @@ pub async fn execute(
     let mut tx = database
         .tx()
         .await
-        .map_err(|error| Error::internal("begin_transaction", error))?;
+        .map_err(|error| AppError::internal("begin_transaction", "user creation failed", error))?;
 
     let mut ctx = tx.context();
     let account = account::insert(
@@ -118,7 +103,7 @@ pub async fn execute(
         },
     )
     .await
-    .map_err(|error| Error::internal("insert_account", error))?;
+    .map_err(|error| AppError::internal("insert_account", "user creation failed", error))?;
     identity::insert(
         &mut ctx,
         &NewIdentity {
@@ -132,11 +117,11 @@ pub async fn execute(
         },
     )
     .await
-    .map_err(|error| Error::internal("insert_identity", error))?;
+    .map_err(|error| AppError::internal("insert_identity", "user creation failed", error))?;
 
     tx.commit()
         .await
-        .map_err(|error| Error::internal("commit_transaction", error))?;
+        .map_err(|error| AppError::internal("commit_transaction", "user creation failed", error))?;
 
     Ok(CreatedLocalUser {
         account_id: account.id,
@@ -148,14 +133,20 @@ async fn hash_password(
     hasher: Arc<dyn PasswordHasher>,
     hash_slots: Arc<Semaphore>,
     password: String,
-) -> Result<String, Error> {
+) -> Result<String, AppError> {
     let permit = hash_slots
         .try_acquire_owned()
         .map_err(|error| match error {
-            TryAcquireError::NoPermits => Error::Busy,
-            TryAcquireError::Closed => {
-                Error::internal("hash_capacity", tlab::Error::Internal(error.into()))
-            }
+            TryAcquireError::NoPermits => AppError::new(
+                AppErrorCode::Busy,
+                "password hashing is busy",
+                "hash_capacity",
+            ),
+            TryAcquireError::Closed => AppError::internal(
+                "hash_capacity",
+                "user creation failed",
+                tlab::Error::Internal(error.into()),
+            ),
         })?;
     tokio::task::spawn_blocking(move || {
         // Keep the slot until hashing actually ends, even when the caller is cancelled.
@@ -163,8 +154,14 @@ async fn hash_password(
         hasher.hash(&password)
     })
     .await
-    .map_err(|error| Error::internal("hash_task", tlab::Error::Internal(error.into())))?
-    .map_err(|error| Error::internal("password_hash", error))
+    .map_err(|error| {
+        AppError::internal(
+            "hash_task",
+            "user creation failed",
+            tlab::Error::Internal(error.into()),
+        )
+    })?
+    .map_err(|error| AppError::internal("password_hash", "user creation failed", error))
 }
 
 #[cfg(test)]
@@ -240,14 +237,20 @@ mod tests {
             .unwrap();
         assert!(matches!(
             hash_password(hasher_a.clone(), slots.clone(), "three".into()).await,
-            Err(Error::Busy)
+            Err(AppError {
+                code: AppErrorCode::Busy,
+                ..
+            })
         ));
         first.abort();
         assert!(first.await.unwrap_err().is_cancelled());
         assert_eq!(slots.available_permits(), 0);
         assert!(matches!(
             hash_password(hasher_b, slots.clone(), "four".into()).await,
-            Err(Error::Busy)
+            Err(AppError {
+                code: AppErrorCode::Busy,
+                ..
+            })
         ));
         gate.release();
         assert_eq!(second.await.unwrap().unwrap(), "hash");
@@ -275,7 +278,10 @@ mod tests {
         let slots = Arc::new(Semaphore::new(2));
         assert!(matches!(
             hash_password(Arc::new(FailingHasher), slots.clone(), "secret".into()).await,
-            Err(Error::Internal(_))
+            Err(AppError {
+                code: AppErrorCode::InternalError,
+                ..
+            })
         ));
         assert_eq!(slots.available_permits(), 2);
     }

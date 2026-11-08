@@ -18,13 +18,13 @@ use tracing::instrument::WithSubscriber;
 
 use crate::app::{
     self, Container,
-    error::{InternalFailure, InvalidInput},
+    error::{AppError, AppErrorCode},
 };
 use crate::auth::{
     entity::{AccountStatus, NewAccount, NewIdentity, Provider},
     passwd_policy::{NonEmptyPasswordPolicy, PasswordPolicy, PasswordPolicyViolation},
     repository::{account, identity},
-    slice::create_local_user::usecase::{self as create_local_user, Command, Error},
+    slice::create_local_user::usecase::{self as create_local_user, Command},
 };
 
 fn command(email: &str) -> Command {
@@ -40,7 +40,7 @@ struct RejectPassword;
 impl PasswordPolicy for RejectPassword {
     fn validate(&self, _: &str) -> Result<(), PasswordPolicyViolation> {
         Err(PasswordPolicyViolation {
-            code: "PASSWORD_REJECTED",
+            code: AppErrorCode::PasswordRejected,
             message: "password rejected by policy",
         })
     }
@@ -105,17 +105,18 @@ async fn with_logs<T>(future: impl Future<Output = T>) -> (T, String) {
 #[tokio::test]
 async fn internal_error_logs_cause_without_exposing_it_in_the_response() {
     let (response, logs) = with_logs(async {
-        Error::Internal(InternalFailure {
-            stage: "password_hash",
-            cause: std::io::Error::other("synthetic hash failure").into(),
-        })
+        AppError::internal(
+            "password_hash",
+            "user creation failed",
+            std::io::Error::other("synthetic hash failure"),
+        )
         .into_response()
     })
     .await;
     let (status, body) = response_json(response).await;
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
     assert_eq!(body["code"], "INTERNAL_ERROR");
-    assert!(logs.contains("operation=\"create_local_user\""));
+
     assert!(logs.contains("stage=\"password_hash\""));
     assert!(logs.contains("cause="));
     assert!(logs.contains("synthetic hash failure"));
@@ -139,6 +140,8 @@ async fn internal_error_logs_cause_without_exposing_it_in_the_response() {
 async fn route_error_logs_are_explicit_and_linked_to_the_request_span() {
     for (status, code) in [
         (400, "INVALID_EMAIL"),
+        (401, "INVALID_CREDENTIALS"),
+        (403, "ACCOUNT_UNAVAILABLE"),
         (409, "EMAIL_ALREADY_EXISTS"),
         (503, "BUSY"),
         (500, "INTERNAL_ERROR"),
@@ -148,17 +151,36 @@ async fn route_error_logs_are_explicit_and_linked_to_the_request_span() {
                 "/errors",
                 axum::routing::post(move || async move {
                     match status {
-                        400 => Error::InvalidInput(InvalidInput {
-                            field: "email",
-                            code: "INVALID_EMAIL",
-                            message: "email must be a single email address",
-                        }),
-                        409 => Error::EmailAlreadyExists,
-                        503 => Error::Busy,
-                        _ => Error::Internal(InternalFailure {
-                            stage: "password_hash",
-                            cause: std::io::Error::other("synthetic hash failure").into(),
-                        }),
+                        400 => AppError::new(
+                            AppErrorCode::InvalidEmail,
+                            "email must be a single email address",
+                            "validate_input",
+                        ),
+                        409 => AppError::new(
+                            AppErrorCode::EmailAlreadyExists,
+                            "local email already exists",
+                            "find_local_by_email",
+                        ),
+                        401 => AppError::new(
+                            AppErrorCode::InvalidCredentials,
+                            "email or password is incorrect",
+                            "verify_credentials",
+                        ),
+                        403 => AppError::new(
+                            AppErrorCode::AccountUnavailable,
+                            "account is unavailable",
+                            "account_status",
+                        ),
+                        503 => AppError::new(
+                            AppErrorCode::Busy,
+                            "password processing is busy",
+                            "hash_capacity",
+                        ),
+                        _ => AppError::internal(
+                            "password_hash",
+                            "user creation failed",
+                            std::io::Error::other("synthetic hash failure"),
+                        ),
                     }
                     .into_response()
                 }),
@@ -180,6 +202,18 @@ async fn route_error_logs_are_explicit_and_linked_to_the_request_span() {
         let (actual_status, body) = response_json(response).await;
         assert_eq!(actual_status.as_u16(), status);
         assert_eq!(body["code"], code);
+        assert_eq!(body.as_object().unwrap().len(), 2);
+        assert!(body["message"].is_string());
+        let diagnostics: Vec<_> = logs
+            .lines()
+            .filter(|line| line.contains("stage="))
+            .collect();
+        assert_eq!(diagnostics.len(), 1, "{logs}");
+        assert!(diagnostics[0].contains("cause="), "{logs}");
+        assert!(diagnostics[0].contains("code="), "{logs}");
+        if status < 500 {
+            assert!(diagnostics[0].contains("INFO"), "{logs}");
+        }
         assert_eq!(
             logs.lines().filter(|line| line.contains("ERROR")).count(),
             usize::from(status == 500),
@@ -200,7 +234,7 @@ async fn route_error_logs_are_explicit_and_linked_to_the_request_span() {
         }
         if status == 500 {
             assert!(logs.contains("stage=\"password_hash\""), "{logs}");
-            assert!(logs.contains("operation=\"create_local_user\""), "{logs}");
+
             assert!(logs.contains("cause="), "{logs}");
             assert!(logs.contains("synthetic hash failure"), "{logs}");
         }
@@ -366,7 +400,10 @@ async fn check_local_user_contracts(test_url: String) {
         .await;
         assert!(matches!(
             result,
-            Err(Error::InvalidInput(InvalidInput { field: "email", .. }))
+            Err(AppError {
+                code: AppErrorCode::InvalidEmail,
+                ..
+            })
         ));
     }
     let slots = container
@@ -384,7 +421,8 @@ async fn check_local_user_contracts(test_url: String) {
     assert_eq!(body["code"], "BUSY");
     let (status, body) = request(container.clone(), &payload).await;
     assert_eq!(status, StatusCode::CONFLICT);
-    assert_eq!(body["field"], "email");
+
+    assert!(body.get("field").is_none());
     assert_eq!(body["code"], "EMAIL_ALREADY_EXISTS");
     // Even with no hashing capacity, unsupported text must fail before hashing.
     let nul_payload =
@@ -392,7 +430,8 @@ async fn check_local_user_contracts(test_url: String) {
             .to_string();
     let (status, body) = request(container.clone(), &nul_payload).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(body["field"], "nickname");
+
+    assert!(body.get("field").is_none());
     assert_eq!(body["code"], "INVALID_NICKNAME");
     drop(slots);
     let result = create_local_user::execute(
@@ -405,11 +444,10 @@ async fn check_local_user_contracts(test_url: String) {
     .await;
     assert!(matches!(
         result,
-        Err(Error::InvalidInput(InvalidInput {
-            field: "password",
-            code: "PASSWORD_REJECTED",
+        Err(AppError {
+            code: AppErrorCode::PasswordRejected,
             ..
-        }))
+        })
     ));
 
     // Two simultaneous creations of one email must leave only one account.
@@ -433,12 +471,18 @@ async fn check_local_user_contracts(test_url: String) {
         _ => panic!("exactly one concurrent creation must succeed"),
     };
     match failure {
-        Error::EmailAlreadyExists => {}
-        Error::Internal(failure) => {
+        AppError {
+            code: AppErrorCode::EmailAlreadyExists,
+            ..
+        } => {}
+        failure @ AppError {
+            code: AppErrorCode::InternalError,
+            ..
+        } => {
             assert_eq!(failure.stage, "insert_identity");
             assert!(matches!(
                 &failure.cause,
-                tlab::Error::DbError(sqlx::Error::Database(error))
+                Some(tlab::Error::DbError(sqlx::Error::Database(error)))
                     if error.is_unique_violation()
                         && error.constraint() == Some("tlab_account_identity_local_email_key")
             ));
@@ -453,7 +497,13 @@ async fn check_local_user_contracts(test_url: String) {
         command("race@example.com"),
     )
     .await;
-    assert!(matches!(retry, Err(Error::EmailAlreadyExists)));
+    assert!(matches!(
+        retry,
+        Err(AppError {
+            code: AppErrorCode::EmailAlreadyExists,
+            ..
+        })
+    ));
     let mut conn = container.database.conn().await.unwrap();
     let account_count: i64 = sqlx::query_scalar("SELECT count(*) FROM tlab_account")
         .fetch_one(conn.context().backend())
@@ -517,7 +567,7 @@ async fn check_local_user_contracts(test_url: String) {
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
     assert_eq!(body["code"], "INTERNAL_ERROR");
     assert!(logs.contains("stage=\"insert_identity\""));
-    assert!(logs.contains("operation=\"create_local_user\""));
+
     assert!(logs.contains("cause="));
     assert!(logs.contains("23505"));
     assert!(!body.to_string().contains("failure@example.com"));

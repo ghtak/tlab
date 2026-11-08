@@ -99,9 +99,8 @@ pub struct PasswordPolicyViolation {
 
 성공 결과는 `account_id: i64`, `status: REGISTERED`다. identity ID와 PHC·비밀번호는 응답하지 않는다. ID는 현재 프로젝트 내부 식별자를 반환하는 안이며 별도 외부용 UUID는 만들지 않는다. (추론)
 
-업무 오류는 slice에 `InvalidInput`, `EmailAlreadyExists`, `Busy`, `Internal`로 구분한다. Internal은 원인과 실패 단계를 함께 보존한다. 필드 오류에는 사용자 원문을 넣지 않는다. DB·해싱 원인은 내부 진단용으로 보존하고 HTTP 응답에 SQL·PHC·DB 진단 문자열을 노출하지 않는다. 사용자 생성 오류를 표현하기 위해 공통 `tlab::Error`에 업무 전용 variant를 추가하지 않는다. (추론)
+usecase는 공통 `AppError { code: AppErrorCode, message, stage, cause: Option<tlab::Error> }`를 반환한다. 실패 의미는 해당 usecase가 판단하고, 공개 메시지는 오류 생성 시 개별 지정한다. `AppErrorCode`는 enum이며 HTTP 계층에서 상태 코드로 대응한다. slice별 Error enum과 InvalidInput·InternalFailure는 사용하지 않는다. cause에는 DB·해싱의 원본 오류를 보존하고 응답으로 직렬화하지 않는다. (확인: 사용자 합의와 구현)
 
-입력·내부 오류 데이터는 [app::error](../../../../tlab-app/src/app/error.rs)의 `InvalidInput { field, code, message }`, `InternalFailure { stage, cause: tlab::Error }`를 공유한다. slice의 Error가 각각을 감싸며, 오류 종류·업무 해석과 HTTP 변환 책임은 유지한다. DB·해셔의 tlab::Error는 그대로 보존하고 전용 변환이 없는 Tokio 오류는 tlab::Error::Internal에 담는다. (확인: 후속 사용자 요청과 구현)
 
 ### HTTP 진입점과 접근 제어
 
@@ -116,15 +115,16 @@ HTTP로 노출하고, 향후 RBAC 설계에서 제한된 사용자에게만 이 
 | 결과 | HTTP 응답 |
 | --- | --- |
 | 생성·commit 성공 | 201, `{"account_id":123,"status":"REGISTERED"}` |
-| JSON·필수 필드·입력 검증 실패 | 400, 필드와 안전한 오류 코드. 알 수 없는 필드도 거부 |
+| JSON·필수 필드·입력 검증 실패 | 400, 안전한 오류 코드와 메시지. 알 수 없는 필드도 거부 |
 | 기본 JSON body 제한 초과 | 413, 원문 없는 INVALID_REQUEST |
 | LOCAL 이메일 중복 | 409, `EMAIL_ALREADY_EXISTS` |
 | 해싱 동시성 슬롯 소진 | 503, `BUSY` |
 | 해싱·DB·blocking 작업 실패 | 500, `INTERNAL_ERROR` |
 
-`app::response::success(status, data)`와 `error(status, code, field, message)`가 정상·에러 JSON을 생성하고 `invalid_json`이 원문 없는 파싱 실패를 처리한다. `internal_error(message)`는 공통 500 응답만 생성하며 로그를 남기지 않는다. 업무 오류와 HTTP 상태·코드의 대응, 진단 로그 발생 여부는 각 route가 결정한다. 공통 응답 모듈은 auth usecase·SQLx·Tokio 오류 타입에 의존하지 않는다. `/db_status`도 공통 정상 응답을 사용하며 기존 JSON 구조는 유지한다. (확인)
+`app::response::success(status, data)`와 `error(status, code, message)`가 JSON을 생성하고 `invalid_json`이 원문 없는 파싱 실패를 처리한다. 공통 `IntoResponse for AppError` 구현은 code를 HTTP 상태로 변환하고 클라이언트에 `{ code, message }`만 반환한다. 오류 응답은 `Cache-Control: no-store`를 사용한다. route는 `error.into_response()`를 호출하며 쿠키 삭제 등 전송 방식별 처리를 담당한다. (확인)
 
-route의 `Internal` 분기가 작업(`operation`), 실패 단계(`stage`), 원인(`cause = ?failure.cause`)을 ERROR로 명시적으로 기록한다. 사용자 후속 의견에 따라 공통 `error_metadata` 분류기는 두지 않으며, SQLx·Tokio·앱 오류를 순회해 종류·SQLSTATE를 추출하는 처리를 제거한다. 원인은 `app::error::InternalFailure`에 보존하고 서버 로그에 Debug 형식으로 출력하되, HTTP 응답은 일반 메시지를 유지한다. `Busy`는 `hash_capacity` 단계의 WARN 한 건으로 기록하고, 입력 오류·이메일 중복은 별도 진단 로그 없이 요청·응답 INFO로 관찰한다. 모든 로그는 현재 요청 span을 사용한다. 요청 본문·비밀번호·생성 해시를 별도로 로깅하지 않지만, cause 자체에 드라이버 진단·입력값이 들어 있다면 서버 로그에 포함될 수 있다. TraceLayer는 상태 코드만으로 별도의 실패 로그를 추가하지 않는다. (확인: 후속 변경 요청과 구현)
+공통 IntoResponse 변환을 거치는 모든 AppError는 stage·cause·code를 한 번 기록한다. InternalError는 ERROR, Busy는 WARN, 입력 오류·인증 실패·이메일 중복 등 나머지는 INFO를 사용한다. 진단 로그는 현재 요청 span을 사용하며 cause는 Debug 형식으로 남긴다. HTTP 응답에는 stage·cause·field를 포함하지 않고, message는 내부 오류 문자열에서 생성하지 않는다. (확인)
+
 
 이 매핑은 현재 HTTP 응답 계약이다. 제한된 사용자만 접근하도록 하는 인가 처리는 후속 RBAC 구현 범위다. HTTP 상태·응답 변환은 handler 책임이며 usecase는 HTTP 타입을 알지 않는다. (추론)
 
@@ -168,7 +168,7 @@ permit은 blocking closure가 끝날 때 해제한다. HTTP 요청이 취소되�
 
 usecase는 `NewAccount { nickname, status: REGISTERED, withdrawn_at: None }`와 `NewIdentity { account_id, provider: LOCAL, provider_subject: None, email, email_verified_at: None, password_hash: Some(PHC), priority: 0 }`를 구성한다. repository는 이를 받아 bind 처리하고 `INSERT ... RETURNING *`를 통해 Account·Identity로 매핑한다. 비밀번호 해시를 포함한 저장 entity를 HTTP 응답에 직접 직렬화하지 않는다. (확인)
 
-LOCAL 이메일 중복은 `tlab_account_identity_local_email_key`의 UNIQUE 위반으로 판정한다. 모든 UNIQUE 오류를 이메일 중복으로 바꾸지 않는다. 사전 SELECT는 정확성의 근거가 아니므로 최초 구현에서는 생략하며, 동시 가입의 최종 판정은 UNIQUE 인덱스가 담당한다. 중복·identity 저장 실패 시 먼저 생성한 계정도 rollback한다. (추론)
+해싱 전에 LOCAL 이메일을 대소문자 구분 없이 조회하여 중복을 거부한다. 사전 조회가 보장하지 못하는 동시 가입은 `tlab_account_identity_local_email_key`의 UNIQUE 제약으로 차단한다. 저장 중 충돌은 InternalError로 전달하며 사용자가 재시도하면 사전 조회에서 EmailAlreadyExists를 반환한다. identity 저장 실패 시 트랜잭션 종료로 먼저 생성한 계정도 rollback된다. (확인: 사용자 합의와 구현)
 
 SNS와 이메일이 같아도 새 LOCAL 계정을 만들며 자동 연결하지 않는다. 탈퇴 계정의 LOCAL identity가 남아 있으면 기존 UNIQUE 인덱스로 중복 처리한다. 이 slice에서 기존 계정을 복구·활성화하거나 identity를 이전하지 않는다. (확인: 스키마·기존 방향 / 추론: 생성 계약)
 
@@ -184,7 +184,7 @@ SNS와 이메일이 같아도 새 LOCAL 계정을 만들며 자동 연결하지 
 | 실제 Argon2id 연계 | 저장된 PHC가 argon2id이며 기존 해셔로 원래 비밀번호 true, 다른 비밀번호 false |
 | 비밀번호 앞뒤 공백 포함 | 원문으로만 검증 성공. trim된 값과 다른 비밀번호로 취급 |
 | 입력 오류 | 명시한 입력 정책으로 거부하고 계정·identity 미생성. NUL 닉네임은 해싱 슬롯이 소진돼도 400/INVALID_NICKNAME |
-| 내부 오류 진단 | 작업·단계·cause를 서버 로그에서 확인. HTTP 응답에는 내부 원인이나 DB 진단을 노출하지 않음. 요청 본문·비밀번호·PHC를 별도 필드로 로깅하지 않음 |
+| 내부 오류 진단 | 요청 span·단계·cause를 서버 로그에서 확인. HTTP 응답에는 내부 원인이나 DB 진단을 노출하지 않음. 요청 본문·비밀번호·PHC를 별도 필드로 로깅하지 않음 |
 | 비밀번호 정책 교체 | 같은 생성 usecase가 주입된 정책에 따라 수락·거부. 거부 시 해싱·DB 변경 없음 |
 | 같은 LOCAL 이메일의 대소문자 변형·동시 요청 | 1건만 성공, 나머지는 EmailAlreadyExists. 고아 계정 없음 |
 | SNS와 같은 이메일 | LOCAL 신규 계정 생성, 기존 계정 연결·수정 없음 |
@@ -328,3 +328,19 @@ provider·status의 String 사용은 리뷰 중 논의에 따라 Rust enum으로
 ### AUTH-06: 현재 slice 배치 안내
 
 사용자 요청으로 현재 책임·배치 도식에 slice 중간 경로를 추가했다. 과거 설계 시작 상태와 리뷰의 파일 경로·검증 결과는 당시 기록으로 보존했다. 문서·실제 파일 대조와 diff 검사를 수행했다. (확인)
+
+### 공통 애플리케이션 오류로 통합
+
+- 사용자가 합의한 AppError·AppErrorCode로 가입·로그인·갱신·로그아웃 오류를 통합했다. 공개 message는 생성 지점에서 지정하고, 공통 IntoResponse가 HTTP 변환과 stage·cause 로깅을 담당한다. 입력 응답의 field는 제거했다. (확인)
+- 초기 이메일 중복 조회와 사용자 재시도 전제를 유지한다. 사전 조회를 통과한 동시 가입 충돌은 내부 오류로 전달하고, 재시도에서는 이메일 중복으로 판정한다. UNIQUE 제약과 트랜잭션이 중복·고아 계정 생성을 방지한다. 이 설명은 앞선 최초 구현의 UNIQUE 오류 변환 방침을 대체한다. (확인)
+- 검증: 로컬 PostgreSQL의 격리 스키마를 사용하는 `env TLAB_TEST_DATABASE_URL=<로컬 개발 DB> cargo test -p tlab-app --locked -- --include-ignored`에서 71개 모두 통과했다. 공통 응답의 code·message 두 필드, 진단 원인 비노출과 요청 span 로깅, 가입 경합 후 재시도, 로그인·갱신·로그아웃·웹 쿠키 회귀를 확인했다. workspace Clippy(`-D warnings`), fmt 검사, diff 검사도 통과했다. (확인)
+
+### 공통 오류·전체 AppError 로깅 리뷰
+
+- 대상: HEAD `5095c51` 대비 미커밋 변경 23개 파일. AppError·AppErrorCode 통합, code·message 응답, IntoResponse 진단 로깅을 검토했다. 초기 이메일 검증과 사용자 재시도, field 제거는 합의된 계약으로 평가했다. (확인)
+- 선행 검사: Rust 1.97.1, 기본 feature에서 `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo audit` 통과. audit은 RustSec DB `309392b1`의 advisory 1422개와 잠금 의존성 297개를 검사했다. unsafe·메모리·동시성 구현 변경이 없어 Miri는 비대상이며, 의존성·unsafe 현황 조사 목적이 없어 Geiger는 수행하지 않았다. LLM 리뷰 진행. (확인)
+- 검증: 실제 로컬 PostgreSQL을 사용하는 `env TLAB_TEST_DATABASE_URL=<로컬 개발 DB> cargo test -p tlab-app --locked -- --include-ignored` 71 passed, 0 failed, 0 ignored. 모든 변경 후의 최신 실행이며, 추가한 INFO·WARN·ERROR 단일 진단 및 trace 연결 테스트를 포함한다. `git diff --check`도 통과했다. (확인)
+- 발견 사항: 수정이 필요한 결함 없음. 공통 AppErrorCode와 HTTP 전용 문자열 코드가 함께 존재하는 점은 구조의 개선 여지이며, 현재 동작 결함으로 보지 않는다. (추론)
+- 점수: 기능 4/4, 가독성과 구조 3/4, 안정성 4/4, 보안 4/4, 성능 4/4, 테스트 용이성 4/4. 총점 96.25/100, 판정 통과. 응답·진단 분리, 거래 실패·경합 재시도·취소 후 용량 유지, 인증·쿠키 회귀를 근거로 평가했으며 실사용 부하 측정은 수행하지 않았다. (추론)
+- 리스크 R2: slice별 실패 타입과 HTTP 변환 책임을 앱 공통 경계로 옮기는 아키텍처 변경이다. 스키마·저장 데이터 계약·외부 발송은 변경하지 않아 코드 복원으로 이전 오류 처리에 돌아갈 수 있다고 판단한다. 실제 배포 롤백은 수행하지 않았다. code·message만 받는 클라이언트와 HTTP 상태의 호환성은 합의된 변경 범위에서 확인했다. (추론)
+- 범위: 전체 로깅은 IntoResponse를 거치는 AppError에 적용한다. JSON 파싱·CSRF·Bearer 등 response::error 직접 생성 경로와 정상 처리로 흡수되는 오류는 이 진단 로깅 대상에 포함되지 않는다. 해당 경로도 포함할지는 별도 정책 변경이며 이번 합의 범위의 결함으로 보지 않는다. 운영 로그량·부하·보관 정책은 검증하지 않았다. (확인·추론)

@@ -26,7 +26,6 @@ where
             let mut response = response::error(
                 StatusCode::UNAUTHORIZED,
                 "INVALID_ACCESS_TOKEN",
-                None,
                 "authentication required",
             );
             response
