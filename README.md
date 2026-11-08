@@ -35,7 +35,7 @@ HTTPS·설정 변경과 검증 도구의 역할은 [HTTP 앱 도구](docs/verifi
 DB 마이그레이션은 앱 설정의 DB에 다음 명령으로 실행한다. 서버는 기동하지 않는다.
 
 ```sh
-cargo run -p tlab-app -- --migrate tlab-app/migrations
+just app-migration
 ```
 
 디렉터리에는 `0001_create.sql`처럼 번호와 이름을 붙인 SQL 파일을 둔다. 코드 작업은
