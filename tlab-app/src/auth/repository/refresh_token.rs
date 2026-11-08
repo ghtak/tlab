@@ -1,4 +1,4 @@
-//! Storage only. Callers own transactions, account-before-refresh locking and policy.
+//! Storage only. Callers own transactions, locking and policy.
 #![allow(
     dead_code,
     reason = "Refresh storage is connected by later authentication slices"

@@ -11,7 +11,7 @@ use crate::{
         error::{InternalFailure, InvalidInput},
     },
     auth::{
-        entity::{Account, AccountStatus, NewRefreshToken},
+        entity::{Account, NewRefreshToken},
         repository::{account, identity, refresh_token},
         token::{AccessIssuer, AccessToken, RefreshToken},
     },
@@ -80,7 +80,7 @@ impl LocalLogin {
                     tlab::Error::IllegalState("identity account is missing".into()),
                 )
             })?;
-        if account.status == AccountStatus::Withdrawn {
+        if !crate::auth::session_policy::allowed(&account) {
             return Err(Error::AccountUnavailable);
         }
         let now = sqlx::types::time::OffsetDateTime::now_utc()
@@ -106,10 +106,7 @@ impl LocalLogin {
         )
         .await
         .map_err(|e| Error::internal("refresh_insert", e))?;
-        let user = serde_json::json!({"nickname": account.nickname, "status": account.status})
-            .as_object()
-            .expect("object literal")
-            .clone();
+        let user = crate::auth::session_policy::user_claim(&account);
         let access = issuer
             .issue(&account.id.to_string(), sid, user, timestamp)
             .map_err(|e| Error::internal("access_sign", tlab::Error::Internal(e.into())))?;
@@ -201,9 +198,10 @@ impl LocalLogin {
                 tlab::Error::IllegalState("identity account is missing".into()),
             )
         })?;
-        match account.status {
-            AccountStatus::Withdrawn => Err(Error::AccountUnavailable),
-            AccountStatus::Registered | AccountStatus::Active => Ok(account),
+        if crate::auth::session_policy::allowed(&account) {
+            Ok(account)
+        } else {
+            Err(Error::AccountUnavailable)
         }
     }
 }

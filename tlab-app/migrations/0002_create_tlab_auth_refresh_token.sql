@@ -8,10 +8,10 @@
 -- 기존 Access는 만료까지 최대 10분 허용한다. sid 자체는 인증 비밀값이 아니다.
 --
 -- 앱 처리 계약(추론): 로그인·갱신·로그아웃·계정 상태 변경은 각각 트랜잭션으로 처리한다.
--- Refresh 해시로 계정을 찾은 후 account FOR UPDATE → Refresh FOR UPDATE 순서로
--- 잠그고 행을 재조회한다. 모든 경로가 같은 잠금 순서를 따라야 한다.
--- 계정 잠금은 전체 폐기와 새 발급·갱신을 직렬화한다. 잠금 획득 뒤 clock_timestamp()로
--- 얻은 동일 시각으로 상태·만료를 판정한다. 트랜잭션 시작 시각으로 판정하지 않는다.
+-- 로그인과 계정 상태 변경·전체 폐기는 계정 행 잠금 아래 직렬화한다.
+-- 갱신은 행 잠금 없이 Refresh와 계정을 조회하고 현재 시각으로 만료를 판정한다.
+-- 일반 로그아웃은 선행 계정 잠금 없이 미폐기 행을 조건부 UPDATE한다.
+-- 갱신이 동시 폐기와 겹치면 이전 상태로 Access를 발급할 수 있다.
 --
 -- 로그인: 계정 잠금과 로그인 허용 상태 확인 후 난수 Refresh의 SHA-256 해시를 INSERT.
 --   최초 로그인 시각과 로그인 유지 한도(168시간 후)를 지정한다.
@@ -86,7 +86,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS tlab_auth_refresh_token_unrevoked_key
 
 COMMENT ON TABLE tlab_auth_refresh_token IS '로그인별 Refresh 해시·만료·폐기 정보. 현재 동일 Refresh를 최대 7일 반복 사용하고 Access만 갱신';
 COMMENT ON COLUMN tlab_auth_refresh_token.session_id IS '로그인 UUID v4. Access JWT의 sid. 같은 로그인에서 유지하며 인증 비밀값으로 사용하지 않음';
-COMMENT ON COLUMN tlab_auth_refresh_token.account_id IS '로그인한 계정. 발급·갱신·폐기·계정 상태 변경에서 계정 잠금을 먼저 획득';
+COMMENT ON COLUMN tlab_auth_refresh_token.account_id IS '로그인한 계정. 로그인과 계정 상태 변경·전체 폐기는 계정 잠금 아래 처리';
 COMMENT ON COLUMN tlab_auth_refresh_token.token_hash IS '고엔트로피 난수 Refresh 원문의 SHA-256 해시 32바이트. 원문 저장 금지';
 COMMENT ON COLUMN tlab_auth_refresh_token.session_created_at IS '최초 로그인 시각. Access 갱신 시 변경하지 않음';
 COMMENT ON COLUMN tlab_auth_refresh_token.session_expires_at IS '최초 로그인부터 168시간 후인 로그인 유지 한도. 갱신 시 연장하지 않음';
