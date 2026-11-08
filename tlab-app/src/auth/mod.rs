@@ -4,6 +4,7 @@ mod login_local;
 pub mod passwd_policy;
 mod repository;
 mod route;
+pub mod token;
 
 pub use login_local::LocalLogin;
 pub use route::router;

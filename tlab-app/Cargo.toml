@@ -7,6 +7,13 @@ edition = "2024"
 axum = { version = "0.8", default-features = false, features = ["http1", "http2", "json", "tokio"] }
 dotenvy = "0.15"
 email_address = { version = "0.2", default-features = false }
+base64 = "0.22"
+getrandom = "0.2"
+jsonwebtoken = "9.3.1"
+sha2 = "0.10"
+serde_json = "1"
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
 serde = { version = "1", features = ["derive"] }
 sqlx = { version = "0.9", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls-ring-native-roots", "derive", "time"] }
 tlab = { path = "../tlab" }
@@ -15,6 +22,6 @@ tracing = "0.1"
 tower-http = { version = "0.7", features = ["trace"] }
 
 [dev-dependencies]
-serde_json = "1"
+tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
