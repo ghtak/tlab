@@ -32,11 +32,13 @@ HTTP 처리·usecase·테스트를 사용자 생성 시나리오 안에 모으�
 ```text
 auth/
 ├── route.rs                     # API 경로·메서드와 slice handler를 연결해 상위 HTTP 모듈에 제공
-├── create_local_user/
+├── slice/
 │   ├── mod.rs
-│   ├── route.rs                 # HTTP 입력·응답, 향후 RBAC 연결 위치
-│   ├── usecase.rs               # 로컬 사용자 추가·트랜잭션, 하단 인라인 해싱 테스트
-│   └── tests.rs                 # HTTP·usecase·실제 DB 통합 계약
+│   └── create_local_user/
+│       ├── mod.rs
+│       ├── route.rs             # HTTP 입력·응답, 향후 RBAC 연결 위치
+│       ├── usecase.rs           # 로컬 사용자 추가·트랜잭션, 하단 인라인 해싱 테스트
+│       └── tests.rs             # HTTP·usecase·실제 DB 통합 계약
 ├── entity.rs                    # 계정·identity entity와 AccountStatus·Provider enum
 ├── repository/
 │   ├── account.rs               # 계정 저장소 CRUD
@@ -322,3 +324,7 @@ provider·status의 String 사용은 리뷰 중 논의에 따라 Rust enum으로
 
 - 사용자 요청으로 slice의 Router 대신 handler 함수를 auth::router에서 직접 등록한다. 사용자 추가는 `POST /api/v1/accounts/local`, 로그인은 `POST /api/v1/auth/local`로 제공한다. 과거 하위 Router 조합 기록을 대체하며 테스트·현재 설계·앱 개발 구조 문서를 갱신했다. (확인)
 - 일반 앱 테스트 14개 통과·DB 의존 2개 제외, 실제 PostgreSQL 포함 앱 테스트 16개 모두 통과. fmt·workspace Clippy·diff 검사 통과. 이전 리뷰 점수는 이번 변경 전 대상의 이력으로 유지한다. (확인)
+
+### AUTH-06: 현재 slice 배치 안내
+
+사용자 요청으로 현재 책임·배치 도식에 slice 중간 경로를 추가했다. 과거 설계 시작 상태와 리뷰의 파일 경로·검증 결과는 당시 기록으로 보존했다. 문서·실제 파일 대조와 diff 검사를 수행했다. (확인)

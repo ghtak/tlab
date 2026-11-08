@@ -22,7 +22,8 @@ pub async fn insert(ctx: &mut Context<'_>, value: &NewRefreshToken) -> tlab::Res
         .fetch_one(ctx.backend()).await?)
 }
 
-/// Initial lookup only; after account lock, lock and re-read the row.
+/// Unfiltered lookup; callers own expiry, revocation and concurrency policy.
+/// Workflows requiring locks re-read with `lock_by_hash` after the account lock.
 pub async fn find_by_hash(
     ctx: &mut Context<'_>,
     hash: &RefreshHash,

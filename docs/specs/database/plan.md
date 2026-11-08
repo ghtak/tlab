@@ -107,7 +107,7 @@ pub struct Context<'c, DB: sqlx::Database> { /* &'c mut DB::Connection */ }
 | 완료·취소 | `Tx::commit(self)` / `Tx::rollback(self) -> impl Future<Output = tlab::Result<()>>` |
 | 쿼리 연결 | `Context::backend(&mut self) -> &mut DB::Connection` |
 
-비동기 메서드는 `pub async fn`으로 구현한다. `Database`, `Conn`, `Tx`, `Context`는 `Clone`을 제공하지 않는다. `Config`에는 URL 자격 증명이 있을 수 있으므로 자동 `Debug`를 제공하지 않는다. 원본 SQLx 연결을 노출하므로 호출자가 직접 transaction SQL을 실행해 래퍼의 경계를 우회하는 사용은 지원하지 않는다. (추론)
+비동기 메서드는 `pub async fn`으로 구현한다. `Database`, `Conn`, `Tx`, `Context`는 `Clone`을 제공하지 않는다. `Config`는 수동 `Debug`를 제공하며 URL 전체를 `[REDACTED]`로 숨기고 최대 연결 수만 실제 값으로 표시한다. 상위 앱 설정에 포함된 Debug와 대체 형식에서도 같은 보호를 적용한다. 원본 SQLx 연결을 노출하므로 호출자가 직접 transaction SQL을 실행해 래퍼의 경계를 우회하는 사용은 지원하지 않는다. (확인·추론)
 
 ### 생성·풀·상태
 
@@ -265,3 +265,10 @@ cargo audit
 - 설계 대비 차이: PoolStatus 직렬화 검증용 serde_json 개발 의존성을 명시했다. SQLx 0.9의 동적 SQL 제약을 테스트에서 QueryBuilder로 처리했으며 공개 API·트랜잭션·오류 계약은 승인된 설계와 같다. (확인)
 - 최종 자체 점검: 요구사항·호출자·실패·부수 효과·복구 경계를 최종 변경과 대조했고 추가 수정 사항은 남아 있지 않다. 소스·데이터·컨테이너의 관련 없는 변경을 섞지 않았다. (추론: 점검 결과)
 - 커밋·PR·게시·배포는 수행하지 않았다. (확인)
+
+
+### CORE-01: DB 설정 Debug의 URL 비노출
+
+사용자가 보고서의 커스텀 Debug 안을 선택해 URL 전체를 숨기도록 요청했다. sqlxdb::Config에서 자동 Debug를 수동 구현으로 교체해 URL은 [REDACTED], 최대 연결 수는 실제 값으로 표시한다. 일반·대체 형식과 상위 앱 설정의 중첩 출력에 같은 보호를 적용하며 설정 로딩·Clone·접속 API는 유지한다. (확인)
+
+새 비노출 테스트는 변경 전 자동 Debug에서 실패했고 구현 후 직접·중첩 회귀 테스트를 포함한 `cargo test --workspace --locked --offline`이 통과했다. 기본 실행의 외부 DB ignored 테스트는 제외된다. fmt·workspace 전체 target Clippy(경고 거부)·diff 검사도 통과했다. 자체 점검에서 비밀 문자열을 포맷하거나 출력하지 않는 구현과 상위 파생 Debug의 위임을 확인했다. 운영 로그·배포·롤백은 실행하지 않았으며 상세 범위는 [문서·코드 정합성 반영 결과](../document-code-consistency/verification.md#후속-반영-결과)에 기록했다. (확인)

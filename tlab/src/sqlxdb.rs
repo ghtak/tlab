@@ -10,11 +10,20 @@ use crate::{Error, Result};
 
 /// Required pool settings, composable with [`crate::config::load`].
 ///
-/// No `Debug` implementation is provided because URLs may contain credentials.
-#[derive(serde::Deserialize, Debug, Clone)]
+/// `Debug` hides the entire URL because it may contain credentials.
+#[derive(serde::Deserialize, Clone)]
 pub struct Config {
     pub url: String,
     pub max_connections: u32,
+}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("url", &"[REDACTED]")
+            .field("max_connections", &self.max_connections)
+            .finish()
+    }
 }
 
 /// Observed connection counts, not an atomic snapshot of concurrent activity.

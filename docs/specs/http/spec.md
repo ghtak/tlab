@@ -50,7 +50,7 @@ status: accepted
 ## 앱 설정 예시
 
 소비자가 앱 소유의 집합 설정에 `http: Option<http::Config>`, `https: Option<http::Config>`, `static_files: Option<http::StaticFilesConfig>`를 포함하는 예시다.
-`http::Config`는 리스너 하나의 `bind`, 선택적 `tls`, 종료 기한만 가진다. `server`와 그 하위 HTTP·HTTPS 블록의 이름·선택·검증은 앱 책임이다. (확인·결정)
+`http::Config`는 리스너 하나의 `bind`, 선택적 `tls`, 종료 기한만 가진다. `server`와 그 하위 HTTP·HTTPS 블록의 이름·선택·검증은 앱 책임이다. 위 Option·활성화 정책은 라이브러리 소비자의 조립 예시다. 현재 `tlab-app`은 두 블록을 모두 필수로 요구하며 [앱 설정 계약](./app/spec.md#req-http-app-001)을 따른다. (확인)
 
 ```toml
 [server.http]
@@ -128,7 +128,7 @@ directory = "./public"
 <a id="req-http-006"></a>
 ### REQ-HTTP-006: 공통 Result 사용
 
-- 공개 서버 실행 함수와 TLS 재로드 작업은 `crate::Result<()>`, 정적 파일 연결 보조 함수는 `crate::Result<axum::Router>`로 반환한다. 실행 중 제어를 위한 준비 함수·핸들을 추가한다면 이 API도 `crate::Result`로 반환한다.
+- 공개 서버 실행 함수와 TLS 재로드 작업은 `crate::Result<()>`, 정적 파일 연결 보조 함수는 `crate::Result<axum::Router<S>>`로 반환한다. 상태 타입은 `S: Clone + Send + Sync + 'static`이며, 상태 주입 전 Router에 병합할 수 있다. 서버에는 상태 주입이 완료된 `Router<()>`를 전달한다. 실행 중 제어를 위한 준비 함수·핸들을 추가한다면 이 API도 `crate::Result`로 반환한다.
 - 잘못된 설정과 준비·실행 오류는 기존 `tlab::Error`로 전달하며, 하위 라이브러리 오류를 공개 반환 타입에 직접 노출하지 않는다. 문맥과 원인 보존 방식은 기존 에러 계약을 따른다.
 - HTTP 요청의 404 등은 응답 상태다. 업무 핸들러의 오류를 어떤 HTTP 응답으로 매핑할지는 상위 라우터의 책임이며, 이번에 `tlab::Error` 전체의 전역 응답 변환 정책을 추가하지 않는다.
 - 완료 조건: 공개 API의 반환 타입과 실패 원인 전달을 확인한다. 내부 진단 내용이 HTTP 응답으로 자동 노출되지 않아야 한다.
@@ -172,3 +172,7 @@ directory = "./public"
 - 재설계 요청에 따라 중복된 설계·전달 사항을 정리하고 상세 설계와 기존 구현·변경 기록은 [PLN-HTTP](./plan.md)로 옮겼다. 요구사항 ID와 사용자가 지정한 범위는 유지했다. (확인)
 - 사용자의 구현·리뷰 요청으로 설계를 채택하고 라이브러리를 구현했다. 후속 의견에 따라 별도 TLS accept 취소를 제거하고 종료·인프라 책임을 REQ-HTTP-005에 반영했다. [구현 기록](./plan.md#구현변경-기록)과 [검증·리뷰](./verification.md)에 결과를 남긴다. (확인)
 - 단일 서버 구현체·상위 HTTP/HTTPS 인스턴스 관리 제안과 “반영해줘” 요청에 따라 설정 집합과 다중 서버 정책을 상위 책임으로 이동했다. 요구사항의 사용자 목표는 유지하고 구현 경계 변경을 REQ-HTTP-001·005와 설계에 반영했다. (확인)
+
+### HTTP-03·05 문서 정합성 반영
+
+사용자 요청으로 정적 Router 반환 타입의 상태 제네릭과 현재 앱의 두 서버 필수 정책을 명시했다. 라이브러리의 선택적 인스턴스 조립 계약은 유지한다. 소스·연결 문서와 대조하고 링크·diff 검사를 수행했다. (확인)

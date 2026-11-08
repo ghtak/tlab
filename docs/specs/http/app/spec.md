@@ -26,7 +26,13 @@ status: draft
 | 종료 | 앱이 Ctrl+C, Unix에서는 SIGTERM도 받음. 공통 종료 신호를 각 인스턴스에 전달하고 완료를 기다림 |
 | 검증 도구 | `just`는 명령 진입점, `curl`은 요청·응답 관찰. 다중 요청·상태·JSON 검증이 필요해질 때 Python `requests` 추가 |
 
-상태 본문·기본 포트·종료 방식은 이번 구현의 선택이다. 인증·외부 의존성 readiness·TLS 재로드 트리거·관리 엔드포인트·CI는 이번 범위에 추가하지 않는다. (추론·선택)
+상태 본문·기본 포트·종료 방식은 HTTP 최초 연결의 선택이다. 당시 범위에 인증·외부 의존성 readiness·TLS 재로드 트리거·관리 엔드포인트·CI는 포함하지 않았다. 현재 auth 연결은 [JWT API](../../auth/jwt-api/plan.md)를 따르며 풀 수치 경로는 아래 현재 구성에 기록한다. (확인)
+
+### 현재 풀 수치 경로
+
+현재 앱은 인증 없이 `GET /db_status`를 제공하며 HTTP 200과 `max_connections`·`size`·`idle`을 JSON으로 반환한다. HTTP·HTTPS 공통 Router에 등록되어 있다. 응답에는 별도 data 래퍼가 없다. 예를 들어 풀 최대 연결 수가 5이고 연결 1개가 유휴 상태라면 `{"max_connections":5,"size":1,"idle":1}` 형태다. (확인)
+
+이 경로는 연결 획득·DB 쿼리 없이 풀 관측 수치를 읽는다. 수치의 원자적 일관성이나 DB readiness를 보장하지 않는다. 운영 노출·접근 제한 정책은 미확정이며 현재 공개 동작을 기록한 것으로 구분한다. (확인)
 
 ## 요구사항과 완료 조건
 
@@ -182,13 +188,13 @@ status: draft
 
 - 사용자 “변경해”와 후속 원인 분류기 제거 의견을 반영했다. 위 구현·리뷰 결과의 자동 5xx ERROR는 초기 구현에 대한 이력이며, 현재 동작은 본문의 `on_failure(())`와 route의 명시적 로깅을 따른다.
 - status만 반환한 500에는 INFO 응답 로그만 남는다. 로컬 사용자 오류 변환을 연결한 `oneshot` 테스트에서는 내부 실패의 ERROR 한 건과 Busy의 WARN 한 건, 입력 오류·중복의 진단 로그 부재를 확인했다. 모든 이벤트가 요청 trace ID와 연결된다. 후속 cause 로깅 요청에 따라 내부 실패의 원인은 route의 ERROR에 기록하고 HTTP 응답에서는 숨긴다.
-- 최종 앱 테스트 12개 통과·PostgreSQL 연동 1개 ignored, fmt·clippy 통과. 작업별 승인·검증·점검은 [로컬 사용자 추가 변경 기록](../../account/create-local-user/plan.md#요청-tracing에-따른-오류-로그-책임-정리)을 참조한다. (확인)
+- 최종 앱 테스트 12개 통과·PostgreSQL 연동 1개 ignored, fmt·clippy 통과. 작업별 승인·검증·점검은 [로컬 사용자 추가 변경 기록](../../auth/create-local-user/plan.md#요청-tracing에-따른-오류-로그-책임-정리)을 참조한다. (확인)
 
 ## 구성
 
-`main.rs`의 설정 로딩 → tracing 초기화 → `app::Container::new`의 프로토콜 검증·두 `Server::new` → `http.rs`의 `/health`·정적 Router 조립 → `run(router)`·종료 순서다.
+`main.rs`의 설정 로딩 → tracing 초기화 → `app::Container::new`의 구성요소 준비 → `http.rs`의 auth·`/health`·`/db_status`·정적 Router 조립 → 두 서버의 `run(router)`·종료 순서다.
 `app.rs`는 설정 타입과 Container를 제공한다. Container는 설정을 소유하고 서버를 생성하며, 앱 HTTP 모듈은 Container의 설정을 참조해 Router를 조립하고 실행·종료를 관리한다. 설정 전체를 복제하지 않고 Container로 이동한다. (확인)
-`main()`은 두 서버의 run과 OS 신호 대기를 try_join으로 함께 기다린다. 신호를 받으면 각 Server의 graceful_shutdown()을 호출하고 run 완료까지 기다린다. watch 채널이나 run의 shutdown 인자는 사용하지 않는다. 실행·신호 오류 시 나머지 future를 취소한다. OS 신호 종류의 선택만 shutdown_signal() 내부에서 처리한다. (확인)
+`http::run()`은 두 서버의 run과 OS 신호 대기를 `try_join!`으로 함께 기다린다. 신호를 받으면 각 Server의 `graceful_shutdown()`을 호출하고 run 완료까지 기다린다. main은 설정·tracing 초기화와 실행 경로 선택을 담당하고 서버 실행은 `http::run()`에 위임한다. watch 채널이나 run의 shutdown 인자는 사용하지 않는다. 실행·신호 오류 시 나머지 future를 취소한다. OS 신호 종류는 `http::shutdown_signal()`에서 선택한다. (확인)
 
 기존 `TLAB_CONFIG_FILE`과 `TLAB_APP_` 환경변수 규칙을 유지한다. 상대 경로는 실행 작업 디렉터리 기준이다.
 예를 들어 `TLAB_APP_SERVER__HTTP__BIND`로 HTTP 주소를 덮어쓴다. 실행·검증 사용법은 [HTTP 도구](../../../verification/tools/http/README.md)에 정리한다. (확인)
@@ -223,3 +229,7 @@ status: draft
 - 사용자의 Container 구조 개선 요청과 후속 “http/https는 필수” 지시를 반영했다. 현재 두 설정·서버 필드를 필수로 유지하며, 향후 선택은 컴파일 시점에 처리할 의도다. 컴파일 조건 자체는 이번에 추가하지 않았다. (확인)
 - `app::Container`가 설정 소유·프로토콜 검증·서버 생성을 맡고, main은 Router 조립·실행·종료를 맡는다. 서버 생성 후 설정 원본을 Container에 이동해 중복 복제를 제거했다. (확인)
 - 기존 테스트를 app 모듈로 옮기고 필수 설정 누락, TLS 프로토콜 불일치, 기본 HTTP·HTTPS 설정을 확인하도록 변경했다. 검증 결과는 [검증 기록](./verification.md#앱-container-정리-검증)에 남긴다. (확인)
+
+### HTTP-01~05: 현재 앱 책임과 공개 경로 보완
+
+사용자 요청으로 이동한 auth 변경 기록 링크를 수정하고 실행·종료 조정의 주체를 http::run으로 맞췄다. 현재 인증 없는 /db_status의 JSON 필드·쿼리 없는 풀 관측·readiness 미보장과 미확정 운영 접근 정책을 문서화했다. 과거 main 배치·검증 결과는 당시 기록으로 보존했다. 문서·소스 대조와 링크·diff 검사를 수행했으며 접근 정책이나 라우팅 동작을 바꾸지 않았다. (확인)

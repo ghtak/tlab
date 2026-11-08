@@ -38,7 +38,7 @@ struct AppConfig {
 }
 ```
 
-현재 `tlab`은 단일 라이브러리 크레이트이며 설정 모듈은 없다.
+설계 시작 당시 `tlab`은 단일 라이브러리 크레이트였으며 설정 모듈이 없었다. 현재는 `tlab::config::load`로 필수 파일과 접두사가 지정된 환경변수를 병합해 호출자 타입으로 읽는다. (확인)
 공통 에러는 `tlab::Error`와 `tlab::Result`로 노출되며, 에러 enum은 `#[non_exhaustive]`로 확장 가능하다. (확인: [lib.rs](../../../../tlab/src/lib.rs), [error.rs](../../../../tlab/src/error.rs))
 
 ## 요구사항과 완료 조건

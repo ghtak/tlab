@@ -8,6 +8,29 @@ use tlab::{Error, Result};
 type Db = Database<Postgres>;
 type Ctx<'a> = Context<'a, Postgres>;
 
+#[test]
+fn config_debug_hides_database_url() {
+    let config = Config {
+        url: "postgres://debug-user:debug-secret@private-host/private-db?token=private-token"
+            .into(),
+        max_connections: 7,
+    };
+    for output in [format!("{config:?}"), format!("{config:#?}")] {
+        for private in [
+            "postgres://",
+            "debug-user",
+            "debug-secret",
+            "private-host",
+            "private-db",
+            "private-token",
+        ] {
+            assert!(!output.contains(private), "database URL must be hidden");
+        }
+        assert!(output.contains("max_connections"));
+        assert!(output.contains('7'));
+    }
+}
+
 async fn insert(ctx: &mut Ctx<'_>, value: i32) -> Result<()> {
     sqlx::query("INSERT INTO tlab_test_values VALUES ($1)")
         .bind(value)

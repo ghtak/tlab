@@ -170,6 +170,37 @@ impl axum::extract::FromRef<Arc<Container>> for crate::auth::token::AccessVerifi
 mod tests {
     use super::*;
 
+    #[test]
+    fn config_debug_hides_nested_database_url() {
+        let mut config: Config = serde_json::from_value(serde_json::json!({
+            "tracing": {},
+            "server": {
+                "http": {"bind": "127.0.0.1:0"},
+                "https": {"bind": "127.0.0.1:0", "tls": {
+                    "certificate_chain": "chain.pem", "private_key": "key.pem"
+                }}
+            },
+            "passwd_hasher": {},
+            "database": {"url": "", "max_connections": 7}
+        }))
+        .unwrap();
+        config.database.url = "postgres://nested-user:nested-secret@private-host/private-db".into();
+        for output in [format!("{config:?}"), format!("{config:#?}")] {
+            for private in [
+                "postgres://",
+                "nested-user",
+                "nested-secret",
+                "private-host",
+                "private-db",
+            ] {
+                assert!(
+                    !output.contains(private),
+                    "nested database URL must be hidden"
+                );
+            }
+        }
+    }
+
     #[tokio::test]
     async fn container_rejects_protocol_mismatch_before_preparing_tls() {
         for server in [

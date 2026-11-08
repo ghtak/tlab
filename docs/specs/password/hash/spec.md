@@ -22,7 +22,7 @@ status: accepted
 
 애플리케이션이 비밀번호를 안전하게 해싱하고 저장된 해시와 대조할 수 있는 공통 기능을 제공한다. 요청의 `argone2`, `pdkdf2`는 각각 Argon2, PBKDF2로 해석한다. (추론)
 
-현재 `tlab`에는 알고리즘별 비밀번호 해싱 모듈이 구현되어 있고, 앱의 사용처는 없다. 각 구현체는 자체 `Config`를 정의하여 앱 설정과 조합한다. 공통 오류는 `tlab::Error`와 `tlab::Result`로 제공한다. (확인: `tlab/src/lib.rs`, `tlab/src/sqlxdb.rs`, `tlab/src/error.rs`)
+현재 `tlab`에는 알고리즘별 비밀번호 해싱 모듈이 구현되어 있다. 앱 Container는 Argon2id 구현체를 생성·보관하고 로컬 사용자 생성·로그인이 이를 사용한다. 각 구현체는 자체 `Config`를 정의하여 앱 설정과 조합한다. 계정 저장·로그인 정책과 데이터 이전은 소비 기능의 책임이다. 공통 오류는 `tlab::Error`와 `tlab::Result`로 제공한다. (확인: `tlab/src/password.rs`, `tlab-app/src/app.rs`, 가입·로그인 usecase)
 
 ## 요구사항과 완료 조건
 

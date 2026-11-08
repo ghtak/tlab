@@ -17,7 +17,7 @@ status: accepted
 
 이메일·비밀번호를 받아 LOCAL identity를 인증하고, 연결된 계정이 로그인 가능한 상태인지 판단하여 인증된 계정 식별 결과를 반환한다. 사용자 요청에 따라 이번 설계는 해당 요청의 처리까지 다룬다. (확인)
 
-포함 범위는 입력 검증, LOCAL identity 조회, 기존 PHC 비밀번호 검증, 계정 조회와 상태 판단, 성공·실패 응답 및 실행 자원 제한이다. 토큰 발급·검증·갱신·폐기, 세션 생성, 쿠키·헤더·브라우저 저장과 후속 요청의 인증은 별도 설계로 둔다. 현재 성공 응답만으로 후속 요청의 접근 권한이 생기지는 않는다. (추론: 경계 제안)
+이 문서는 `LocalLogin::execute`의 입력 검증, LOCAL identity 조회, PHC 비밀번호 검증, 계정 상태 판단과 실행 자원 제한을 소유한다. 내부 `execute`는 토큰을 만들지 않고 Account를 반환한다. 현재 HTTP 로그인은 `execute_with_tokens`를 호출해 Refresh 저장·Access 서명·commit 후 계정 ID·상태와 Access·Refresh를 반환한다. 토큰 발급과 저장 계약은 [로그인 발급 설계](../jwt-login/plan.md), HTTP·후속 요청 인증은 [JWT API](../jwt-api/plan.md)를 따른다. 웹 쿠키·CSRF 연결은 후속 범위다. (확인)
 
 가입·자동 가입, 이메일 인증, 계정 활성 전환, 비밀번호 재설정, SNS 로그인, RBAC, 실패 횟수 저장·계정 잠금·IP별 요청 제한은 이번 작업에서 추가하지 않는다. 해싱 동시성 제한은 서버 자원 보호이며 로그인 시도 횟수 제한을 대신하지 않는다. (추론: 범위 제안)
 
@@ -42,11 +42,13 @@ status: accepted
 
 ```text
 tlab-app/src/auth/
-├── login_local/
+├── slice/
 │   ├── mod.rs
-│   ├── route.rs       # 요청 해석, HTTP 변환·로깅
-│   ├── usecase.rs     # 입력·인증·계정 상태 판단
-│   └── tests.rs       # 요청 처리 계약 검증
+│   └── login_local/
+│       ├── mod.rs
+│       ├── route.rs   # 요청 해석·HTTP 변환·로깅
+│       ├── usecase.rs # 입력·인증·계정 상태 판단과 토큰 발급 조합
+│       └── tests.rs   # 요청 처리 계약 검증
 ├── repository/
 │   ├── identity.rs    # LOCAL 이메일 조회 추가
 │   └── account.rs     # ID 조회 추가
@@ -63,6 +65,8 @@ tlab-app/src/auth/
 | app::error | InvalidInput(field·code·message), InternalFailure(stage·cause: tlab::Error)의 공용 데이터 구조. slice 오류 분류·HTTP 변환은 소유하지 않음 |
 
 로그인 정책을 repository나 라이브러리 해셔에 넣지 않는다. 가입의 PasswordPolicy는 새 비밀번호 설정 규칙이므로 로그인에서 호출하지 않는다. 정책이 강화되어도 저장된 비밀번호로 인증할 수 있어야 한다. (추론: 제안·근거)
+
+아래 흐름은 내부 `execute`의 자격증명·계정 상태 확인을 나타낸다. HTTP 로그인은 이 결과에 토큰 발급·저장 단계를 연결한다. (확인)
 
 ```mermaid
 sequenceDiagram
@@ -94,14 +98,14 @@ sequenceDiagram
 
 ### usecase
 
-Container가 `LocalLogin::new(hasher, password_slots).await`로 usecase 인스턴스를 생성한다. 요청마다 `local_login.execute(database, command) -> Result<Account, Error>`를 호출한다. 해셔·슬롯은 가입과 같은 인스턴스를 공유하며 더미 PHC는 usecase의 비공개 필드다. 호출자는 더미 PHC를 생성하거나 전달하지 않는다. (확인: 사용자 의견 반영)
+Container가 `LocalLogin::new(hasher, password_slots).await`로 usecase 인스턴스를 생성한다. `local_login.execute(database, command) -> Result<Account, Error>`는 내부 자격증명·계정 상태 확인 API다. 현재 HTTP route는 `execute_with_tokens(database, command, issuer)`를 호출하며 이 메서드는 `execute`의 인증 결과에 토큰 발급을 연결한다. 해셔·슬롯은 가입과 같은 인스턴스를 공유하며 더미 PHC는 usecase의 비공개 필드다. 호출자는 더미 PHC를 생성하거나 전달하지 않는다. (확인)
 
 | 구분 | 계약 |
 | --- | --- |
 | Command | email: String, password: String. 비밀번호를 포함하므로 Debug·전체 인자 tracing 금지 |
 | email | 앞뒤 trim 후 기존 가입과 같은 email_address 옵션으로 단일 이메일 검증. 조회는 DB lower(email) = lower($1) 사용 |
 | password | 빈 문자열은 입력 오류. trim·대소문자 변환·Unicode 정규화·절단 없이 원문 전달. 공백만 있는 비밀번호도 원문대로 검증 |
-| Account | 인증·상태 검증을 통과한 기존 Account entity 전체. 토큰 등 후속 처리에 연결할 수 있도록 반환하며 identity·PHC는 포함하지 않음. HTTP route가 LoginResponse로 계정 ID·상태만 선택 |
+| Account | 내부 execute가 반환하는 인증·상태 검증을 통과한 기존 Account entity 전체. identity·PHC는 포함하지 않음. 현재 HTTP route는 토큰 발급 결과에서 계정 ID·상태와 Access·Refresh를 선택 |
 | InvalidInput | field·고정 code·message. 저장소·비밀번호 연산 이전에 반환 |
 | InvalidCredentials | LOCAL identity 미존재 또는 비밀번호 불일치. 같은 외부 결과 |
 | AccountUnavailable | 비밀번호 일치 후 계정이 WITHDRAWN인 경우 |
@@ -133,9 +137,9 @@ LOCAL identity의 password_hash가 NULL이거나 PHC가 손상·비지원이면 
 
 조회 결과 없음은 None, DB·entity 디코딩 오류는 Err다. 로그인 허용·거부 의미는 usecase가 결정한다. 두 API는 기존 저장 entity를 반환하며 로그인 전용 JOIN 모델이나 저장소 trait은 추가하지 않는다. (추론: 제안)
 
-각 조회가 끝나면 DB context·연결을 반환하고 비밀번호 연산 중에는 연결·트랜잭션·행 잠금을 유지하지 않는다. 읽기만 수행하므로 명시적인 쓰기 트랜잭션, last_login 갱신, 재해싱·상태 변경은 없다. 계정 상태는 검증 후 계정 조회 시점의 값으로 판단한다. (추론: 제안)
+내부 `execute`는 각 조회가 끝나면 DB context·연결을 반환하고 비밀번호 연산 중에는 연결·트랜잭션·행 잠금을 유지하지 않는다. 이 메서드는 읽기만 수행하며 쓰기 트랜잭션, last_login 갱신, 재해싱·상태 변경은 없다. 계정 상태는 검증 후 계정 조회 시점의 값으로 판단한다. (확인)
 
-계정 조회 이후 동시에 탈퇴할 수 있으므로 이 응답은 해당 조회 시점의 인증 결과다. 후속 토큰·세션의 발급과 탈퇴 차단을 원자적으로 보장하지 않는다. 발급 시점과 기존 세션의 상태 확인·폐기 계약은 별도 토큰·탈퇴 설계에서 연결해야 한다. (추론: 일관성 경계)
+`execute`의 반환은 계정 조회 시점의 인증 결과다. 현재 `execute_with_tokens`는 이 결과를 받은 뒤 별도 트랜잭션에서 계정 행을 잠그고 상태를 다시 확인한다. Refresh 저장·Access 서명·commit 후에만 성공 결과를 반환한다. 계정 상태 변경·전체 폐기 호출자도 같은 계정 잠금을 사용해야 직렬화된다. 상세는 [로그인 발급 계약](../jwt-login/plan.md)을 따른다. (확인)
 
 ### HTTP
 
@@ -145,10 +149,10 @@ LOCAL identity의 password_hash가 NULL이거나 PHC가 손상·비지원이면 
 {"email":"user@example.com","password":"입력한 비밀번호"}
 ```
 
-성공 시 `200 OK`와 다음 JSON을 반환한다. 토큰·쿠키·세션은 만들지 않으며 기존 응답 함수처럼 별도 data 래퍼를 두지 않는다. (추론: 제안)
+성공 시 Refresh 행을 저장하고 Access를 서명한 뒤 commit 성공 후 `200 OK`와 다음 형태의 JSON을 반환한다. 토큰 문자열은 예시이며 쿠키와 별도 data 래퍼는 만들지 않는다. 상세 토큰·HTTP 계약은 [JWT API](../jwt-api/plan.md)를 따른다. (확인)
 
 ```json
-{"account_id":123,"status":"REGISTERED"}
+{"account_id":123,"status":"REGISTERED","access_token":"<Access JWT>","refresh_token":"<Refresh>"}
 ```
 
 | 결과 | HTTP | code / field |
@@ -176,11 +180,12 @@ route가 기존 요청 trace에 연결하여 Busy는 WARN, Internal은 operation
 
 ## 검증할 계약
 
-구현 시 기존 in-process Axum Router·실제 PostgreSQL의 고유 테스트 스키마 구성을 사용한다. 실행 전후 계정·identity가 바뀌지 않았는지 확인하고 실제 PHC를 사용한 가입→로그인 연동을 포함한다. 아래는 실행할 검증 조건이며 이번 문서 작업에서 테스트한 결과가 아니다. (추론)
+기존 in-process Axum Router·실제 PostgreSQL의 고유 테스트 스키마 구성을 사용한다. 내부 `execute`는 DB 변경 없는 인증을 확인하고, HTTP 로그인은 계정·identity를 변경하지 않으면서 Refresh 해시를 저장하고 토큰을 반환하는지 구분해 검증한다. 아래는 검증 조건이며 이번 문서 작업에서 테스트한 결과가 아니다. (확인·추론)
 
 | 시나리오 | 기대 결과 |
 | --- | --- |
-| 기존 가입으로 만든 REGISTERED 및 ACTIVE 계정 | 올바른 비밀번호로 200, 계정 ID·원래 상태 반환, DB 변경 없음 |
+| 내부 execute로 REGISTERED 및 ACTIVE 계정 인증 | 올바른 비밀번호로 Account 반환, DB 변경 없음 |
+| HTTP로 REGISTERED 및 ACTIVE 계정 로그인 | 200, 계정 ID·원래 상태·Access·Refresh 반환. 계정·identity는 불변이며 Refresh 해시 행 생성 |
 | 이메일 앞뒤 공백·대소문자 변형 | 같은 LOCAL identity 인증 |
 | 앞뒤 공백이 포함된 비밀번호 | 정확한 원문만 성공, trim한 값은 401 |
 | LOCAL 없음·SNS만 존재·비밀번호 불일치 | 같은 401 code·message, 더미 경로에서 실제 검증 실행 |
@@ -188,9 +193,9 @@ route가 기존 요청 trace에 연결하여 Busy는 WARN, Internal은 operation
 | 잘못된 입력·추가 필드·크기 초과 | 정의한 400·413, 입력 검증에서 실패하면 DB 조회·비싼 연산 실행 없음 |
 | NULL·손상·비지원 PHC, DB·blocking 실패 | 500, 원인·입력 비밀은 응답에 없음 |
 | 가입과 로그인으로 공유 슬롯 소진 | 다른 쪽 요청도 503, 취소해도 실제 작업 종료까지 슬롯 유지 |
-| 모든 응답 | no-store, PHC·비밀번호·토큰·Set-Cookie 없음, 로그 수준·trace 연결 확인 |
+| 모든 HTTP 응답 | no-store, PHC·비밀번호·Set-Cookie 없음, 로그 수준·trace 연결 확인. 성공 본문에만 Access·Refresh 포함 |
 
-앱 기능 테스트와 공유 자원에 영향받는 기존 가입 테스트를 실행하고 fmt·Clippy를 확인한다. migration은 변경하지 않는다. 토큰·브라우저 연동과 운영 부하는 이 검증으로 보장하지 않는다. (추론: 검증 범위)
+앱 기능 테스트와 공유 자원에 영향받는 기존 가입 테스트를 실행하고 fmt·Clippy를 확인한다. 토큰 발급·저장·API 연동의 검증 범위는 [로그인 발급](../jwt-login/plan.md)과 [JWT API](../jwt-api/plan.md)에 연결한다. 브라우저 연동과 운영 부하는 이 검증으로 보장하지 않는다. 이 문서 수정에서는 migration 동작 변경이나 테스트 실행을 수행하지 않았다. (확인·추론)
 
 ## 결정사항·남은 사항
 
@@ -277,3 +282,7 @@ route가 기존 요청 trace에 연결하여 Busy는 WARN, Internal은 operation
 - 아키텍처 변경은 **있음**: 새 로그인 HTTP 계약·slice·LocalLogin 인스턴스, 저장소 조회 계약과 앱 공통 오류 데이터 소유 경계를 추가했다. 기존 가입 HTTP 응답과 tlab::Error 계약은 유지한다. 코드 롤백 가능·아키텍처 변경 있음의 조합으로 R2를 적용했다. (확인: 변경 범위 / 추론: 분류)
 - 적용·중단 조건: 기존 account migration이 적용된 DB에서 앱 코드를 적용한다. 로그인 5xx·503 증가가 관찰되면 새 로그인 호출을 중단하거나 앱 코드를 복원한다. 로그인은 쓰기·세션 발급을 하지 않아 별도 데이터 보정·세션 폐기가 필요하지 않다. 새 엔드포인트를 사용하는 외부 호출자가 생긴 뒤 롤백할 경우 해당 호출자도 함께 조정해야 한다. (추론)
 - 미검증 범위: 새 엔드포인트의 실제 TCP/HTTPS 호출, 운영 부하·처리량·완전한 타이밍 동일성, 실제 rollback, 토큰·세션 발급과 탈퇴 경쟁의 원자성. 로그의 cause 원문에 DB 진단 등이 포함될 수 있는 기존 정책은 유지하며 이를 별도로 강화한 변경은 아니다. 이번 리뷰는 이 범위를 보장하지 않는다. (확인: 수행·합의 범위)
+
+## 구현·변경 기록: AUTH-03·06 문서 정합성
+
+사용자 요청으로 내부 execute의 Account 반환·읽기 전용 계약과 HTTP의 execute_with_tokens·Refresh 저장·토큰 응답을 구분했다. 현재 HTTP 예시·검증 조건과 slice 경로 도식을 맞췄으며 과거 리뷰·복구 평가는 당시 대상의 기록으로 보존했다. 문서·소스 대조와 diff 검사를 수행했다. 이번 문서 수정 자체를 토큰 발급 동작 변경이나 재검증으로 취급하지 않는다. (확인)

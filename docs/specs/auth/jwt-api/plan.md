@@ -1,6 +1,6 @@
 ---
 id: PLN-AUTH-JWT-API
-status: implemented
+status: accepted
 ---
 
 # JWT API 계약과 검증
@@ -13,7 +13,7 @@ status: implemented
 | POST `/api/v1/auth/refresh` | `refresh_token` | 200: `access_token`만 반환, 기존 Refresh 유지 |
 | POST `/api/v1/auth/logout` | `refresh_token` | 200: `{}` |
 
-토큰 응답과 오류는 `Cache-Control: no-store`다. Refresh 미존재·갱신 불가 시 401 `INVALID_REFRESH_TOKEN`; 기존 만료·폐기 행의 반복 로그아웃은 성공한다. 잘못된 JSON은 공통 오류 계약을 따른다. 토큰 원문은 로그에 기록하지 않는다. (확인)
+토큰 응답과 오류는 `Cache-Control: no-store`다. Refresh 미존재·갱신 불가 시 401 `INVALID_REFRESH_TOKEN`; 기존 만료·폐기 행의 반복 로그아웃은 성공한다. 잘못된 JSON은 공통 오류 계약을 따른다. 정상 전달 계약인 Authorization 헤더의 Access와 JSON 본문의 Refresh를 별도 로그 필드로 기록하지 않는다. 공통 요청 로그는 전체 URI를 기록하며, query에 잘못 전달한 토큰의 로그 노출 방지는 사용자 결정에 따라 이번 범위에서 제외한다. (확인)
 
 핸들러는 `claims: AccessClaims`로 인증하며 `Json`보다 앞에 둔다. `FromRef`로 공개키 검증기만 가져오고 요청별 DB·파일·네트워크 접근 없이 서명, EdDSA, iss/aud, 필수 클레임과 시간 정책을 검증한다. `Authorization`은 정확히 한 헤더여야 하며 대소문자 무관 `Bearer`, 단일 공백, 공백·쉼표 없는 토큰만 받는다. 누락·형식·검증 실패는 모두 401 `INVALID_ACCESS_TOKEN`, `WWW-Authenticate: Bearer`다. 계정 조회와 권한 판단은 호출자가 명시적으로 담당한다. 쿠키 fallback은 없다. (확인)
 
@@ -57,3 +57,13 @@ HTTP 핸들러와 요청·오류 변환을 `auth/refresh_lifecycle/route.rs`로 
 사용자 판단에 따라 쿼리로 전달한 토큰의 로그 노출 방지는 이번 API 계약 범위에서 제외했다. 정상 계약은 Access를 Authorization 헤더로, Refresh를 JSON 본문으로 전달하며 기존 전체 URI 기록 동작은 유지한다. (확인)
 
 만료 Router 테스트는 `iat=now-601`, `exp=now-1`로 변경해 600초 수명과 나머지 조건을 만족하는 서명 토큰을 사용한다. `cargo test -p tlab-app auth::extractor::tests::bearer_contract_without_database --locked --offline` 및 fmt 검사 통과. 기존 리뷰 점수와 판정은 수정 전 대상의 기록이다. (확인)
+
+## 구현·변경 기록
+
+### AUTH-04: 토큰 로그 비기록의 적용 범위 명시
+
+사용자 요청으로 정상 헤더·본문 전달의 토큰을 별도 기록하지 않는다는 계약과 전체 URI 로그의 query 노출 한계를 본문에서 구분했다. 기존 사용자 결정을 반영한 문서 변경이며 로깅 동작은 변경하지 않았다. 본문·소스 대조와 diff 검사를 수행했고 실행 테스트는 다시 수행하지 않았다. (확인)
+
+### DOC-01: 문서 채택 상태 정리
+
+기존 API 연결·사용자 결정 기록과 이번 DOC-01 반영 요청을 근거로 채택 상태를 accepted로 정리했다. 구현·검증 완료 여부와 채택 상태를 구분하고 과거 리뷰·수치는 당시 대상으로 보존한다. (확인)

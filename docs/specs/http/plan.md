@@ -54,7 +54,9 @@ pub struct StaticFilesConfig {
 }
 
 impl StaticFilesConfig {
-    pub fn router(&self) -> crate::Result<axum::Router>;
+    pub fn router<S>(&self) -> crate::Result<axum::Router<S>>
+    where
+        S: Clone + Send + Sync + 'static;
 }
 
 impl Server {
@@ -75,7 +77,9 @@ impl Server {
 | `shutdown_timeout_secs` | 기본 30초. 0 또는 종료 기한으로 표현할 수 없는 값은 `InvalidInput` |
 | `StaticFilesConfig` | 기존 고정 비루트 접두사·존재하는 디렉터리 검증과 Router 생성 유지 |
 
-모든 설정은 `Deserialize`와 `deny_unknown_fields`를 유지한다. 앱은 HTTP 블록의 TLS 미설정·HTTPS 블록의 TLS 필수·하나 이상 활성화를 검증한다. 라이브러리는 인스턴스 하나만 처리한다. (결정)
+모든 설정은 `Deserialize`와 `deny_unknown_fields`를 유지한다. 소비자 조립 예시에서는 HTTP 블록의 TLS 미설정·HTTPS 블록의 TLS 필수·하나 이상 활성화를 앱이 검증한다. 라이브러리는 인스턴스 하나만 처리한다. 현재 `tlab-app`은 `server.http`와 `server.https`를 모두 필수로 요구하며 실제 앱 정책은 [SPEC-HTTP-APP](./app/spec.md#req-http-app-001)을 따른다. (확인)
+
+정적 파일 Router는 상태 주입 전 `Router<S>`에 병합할 수 있다. 서버의 `run`에는 상태 주입이 끝난 `Router<()>`를 전달한다. (확인)
 
 Server 하나는 한 번의 실행에 사용한다. 종료 제어용 Handle을 Server가 소유하므로 종료 후에는 새 Server를 만든다. 바인딩 실패처럼 실행이 시작되지 않은 경우에는 충돌 해소 후 다시 호출할 수 있다. 동시 run은 지원 계약에 포함하지 않는다. (결정)
 
@@ -180,3 +184,7 @@ tokio::try_join!(
 - 사용자 요청에 따라 run의 shutdown 인자·종료 대기를 제거하고 graceful_shutdown()을 공개했다. Handle은 Server가 소유하며 앱이 종료 요청을 보내고 run 완료를 기다린다.
 - 앱의 watch 채널을 제거했다. HTTP·HTTPS 실행과 OS 신호 대기를 try_join으로 조립하고, 신호 수신 시 두 서버의 graceful_shutdown()을 호출한다.
 - Server는 한 번의 실행에 사용하며 종료 후 재실행은 새 인스턴스로 진행한다. 바인딩 실패 후 재시도는 가능하다. (결정)
+
+### HTTP-03·05: 공개 API와 소비자 범위 명시
+
+사용자 요청으로 정적 Router의 상태 제네릭·제약을 API 표에 반영하고 상태 주입 전 병합과 최종 Router 전달을 구분했다. 선택적 서버 구성은 라이브러리 소비자 예시이며 현재 앱은 HTTP·HTTPS 두 설정이 필수임을 명시했다. 문서·소스 대조와 링크·diff 검사를 수행했고 실행 동작은 변경하지 않았다. (확인)

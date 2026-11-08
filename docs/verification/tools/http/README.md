@@ -10,7 +10,7 @@
 ## 실행과 확인
 
 Rust 도구 체인·just·curl을 준비하고 저장소 루트에서 실행한다.
-기본 주소는 `http://127.0.0.1:8080`이다. DB를 가동할 필요는 없다.
+기본 주소는 `http://127.0.0.1:8080`이다. 현재 앱을 시작하려면 접속 가능한 PostgreSQL과 DB URL, 유효한 JWT 개인키·공개키가 필요하다. 기본 DB URL은 비어 있으므로 실행 디렉터리의 `.env` 또는 환경변수 `TLAB_APP_DATABASE__URL`로 지정한다. JWT 키 파일을 미리 준비하거나 격리된 개발 환경에서 `auth.jwt.generate_if_missing = true`를 명시한다. 현재 앱은 HTTP·HTTPS를 모두 실행하므로 HTTPS의 TLS 자료도 준비되어야 하며, 기본 설정은 개발용 TLS 자료의 조건부 생성을 허용한다. DB 가동과 `.env` 준비는 [루트 실행 안내](../../../../README.md)를 따른다. `/health` 요청 자체는 DB readiness를 검사하지 않는다. (확인)
 
 ```sh
 just app-run

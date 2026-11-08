@@ -17,6 +17,8 @@ pub trait PasswordHasher: Send + Sync {
     fn verify(&self, password: &str, encoded_hash: &str) -> Result<bool>;
 }
 
+/// Generates a PHC salt from 16 OS-random bytes.
+/// Randomness or encoding failures return [`Error::Internal`].
 pub fn salt() -> crate::Result<SaltString> {
     let mut bytes = [0u8; 16];
     getrandom::getrandom(&mut bytes).map_err(|error| {

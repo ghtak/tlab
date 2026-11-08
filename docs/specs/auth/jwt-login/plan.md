@@ -1,13 +1,13 @@
 ---
 id: PLN-AUTH-JWT-LOGIN
-status: implemented
+status: accepted
 ---
 
 # 로그인 발급 설계와 검증
 
 ## 책임과 계약
 
-기존 `LocalLogin::execute`는 계정만 반환하는 HTTP 계약을 유지한다. `execute_with_tokens`는 같은 비밀번호 인증과 오류 정책을 사용한 다음 별도 트랜잭션에서 계정 행을 잠그고 현재 상태를 재확인한다. 탈퇴 계정은 거부한다. 현재 계정 모델에는 정지 상태가 없다. 비밀번호 검증은 잠금 이전에 수행한다. 계정 상태를 변경하고 Refresh를 폐기하는 후속 작업도 같은 계정 잠금 순서를 지켜야 직렬화된다. (확인)
+기존 `LocalLogin::execute`는 계정만 반환하는 내부 인증 계약을 유지한다. 현재 HTTP 로그인은 `execute_with_tokens`를 호출하고 계정 ID·상태와 Access·Refresh를 반환한다. `execute_with_tokens`는 같은 비밀번호 인증과 오류 정책을 사용한 다음 별도 트랜잭션에서 계정 행을 잠그고 현재 상태를 재확인한다. 탈퇴 계정은 거부한다. 현재 계정 모델에는 정지 상태가 없다. 비밀번호 검증은 잠금 이전에 수행한다. 계정 상태를 변경하고 Refresh를 폐기하는 후속 작업도 같은 계정 잠금 순서를 지켜야 직렬화된다. (확인)
 
 잠금 획득 후 초 단위 UTC 시각을 정하고 UUID v4 sid, 256비트 Refresh를 생성한다. Refresh 원문은 성공 결과에서만 제공하며 SHA-256만 저장한다. 세션 생성·Refresh 생성 시각은 같고 두 만료는 최초 시각 + 168시간이다. Access는 동일한 시각부터 600초다. 저장 후 서명하고 commit 성공 후에만 토큰을 반환한다. 실패나 취소 시 미완료 트랜잭션은 rollback된다. commit 통신 실패는 DB 완료 여부를 알 수 없지만 성공 결과는 반환하지 않는다. (확인)
 
@@ -24,3 +24,7 @@ API 연결에서 Container가 `Ed25519KeyFile`과 `AccessIssuer`·`AccessVerifie
 - `cargo clippy --workspace --all-targets --locked --offline -- -D warnings`, `cargo audit`: 통과. (확인)
 - `cargo test --workspace --locked --offline`, `cargo fmt --all -- --check`, `git diff --check`: 통과. workspace 기본 실행에서 ignored인 라이브러리 DB 테스트는 실행하지 않았으며, 앱의 DB 테스트 7개는 위 별도 실행에 포함했다. (확인)
 - 서명 테스트 구성을 변경한 뒤 격리 PostgreSQL의 `local_login_http_contracts`, workspace Clippy, fmt 및 diff 검사를 다시 실행해 통과했다. 위 전체 workspace·앱 테스트와 audit은 변경 전에 실행했다. (확인)
+
+## 구현·변경 기록: AUTH-03·DOC-01 반영
+
+사용자 요청으로 Account 반환은 내부 인증 계약이며 현재 HTTP는 Access·Refresh를 반환함을 본문에 명시했다. 기존 발급 계약·구현 기록과 이번 DOC-01 반영 요청을 근거로 문서 채택 상태를 accepted로 정리했다. 구현 완료 여부·과거 검증 결과는 상태와 구분하며 실제 발급 동작은 변경하지 않았다. (확인)

@@ -22,9 +22,9 @@ status: accepted
 
 - `tlab-app/src/auth/token.rs`: auth 공용 토큰 계약·구현. `AccessIssuer`, `AccessVerifier`, `AccessClaims`, 비밀 토큰 wrapper와 `RefreshHash`를 제공한다. 시나리오·HTTP·저장소에 의존하지 않는다. (확인)
 - `tlab/src/keyfiles/ed25519.rs`: 기존 키 읽기·생성·키 쌍 검증 책임을 그대로 사용한다. 키 로더는 수정하지 않는다. (확인)
-- 로그인·갱신 호출자: 신뢰할 수 있는 계정·사용자 정보, 로그인별 UUID v4, 실제 현재 시각을 제공한다. Refresh 저장·7일 만료·폐기와 상위 설정 조립은 후속 작업이다. (추론)
+- 로그인·갱신 호출자: 신뢰할 수 있는 계정·사용자 정보, 로그인별 UUID v4, 실제 현재 시각을 제공한다. 토큰 기반 최초 구현 단계에서는 Refresh 저장·7일 만료·폐기와 상위 설정 조립을 후속 작업으로 구분했다. 현재 연결은 아래 후속 문서를 따른다. (확인)
 
-기존 auth에는 시나리오와 repository가 있으나 토큰 공용 작업은 없었다. token 모듈 하나를 추가하고 공개 모듈 선언만 연결한다. 호출자가 아직 없으므로 Container·설정·라우터는 변경하지 않고, 후속 연결 전의 dead-code 허용 사유를 해당 모듈에 한정하여 명시한다. 계층이나 trait을 추가하지 않아도 실제 키와 명시적 시간으로 검증할 수 있다. (확인·추론)
+토큰 기반 최초 구현 단계에서는 기존 auth에 토큰 공용 작업이 없어 token 모듈과 공개 선언을 추가했다. 당시에는 호출자가 없어 Container·설정·라우터를 변경하지 않고 후속 연결 전 dead-code 허용 사유를 모듈에 한정했다. 현재는 앱과 로그인·갱신 경로에 연결되어 있으며 당시 미연결 설명은 현재 앱의 상태를 뜻하지 않는다. 계층이나 trait을 추가하지 않아도 실제 키와 명시적 시간으로 토큰 계약을 검증할 수 있다. (확인·추론)
 
 ## Access 계약과 결정
 
@@ -71,7 +71,9 @@ OS 난수 `getrandom`으로 32바이트(256비트)를 생성하고 `base64`의 U
 
 ## 범위 밖·후속 작업
 
-DB entity/repository/migration, Refresh 저장·7일 만료·폐기 판단, 로그인 usecase 연결, HTTP/Bearer/cookie/CSRF, JWKS 배포·키 교체·Container 조립은 구현하지 않았다. 따라서 로그인에서 실제 토큰을 반환하거나 DB에서 Refresh를 인증하는 기능은 아직 없다. `user`의 업무 필드·권한 모델도 확정하지 않았다. 이들은 이번 토큰 기반 기능의 미충족 조건과 구분되는 후속 범위다. (확인)
+토큰 기반 최초 구현 단계에는 DB entity/repository/migration, Refresh 저장·7일 만료·폐기 판단, 로그인 usecase, HTTP/Bearer/cookie/CSRF, JWKS·키 교체·Container 조립을 포함하지 않았다. 당시에는 실제 로그인 토큰 반환과 DB Refresh 인증이 없었으며 `user`의 업무 필드·권한 모델도 미정이었다. 이는 최초 단계의 범위 기록이다. (확인)
+
+현재 DB 저장은 [Refresh 저장](../jwt-refresh-storage/plan.md), 로그인 발급은 [로그인 발급](../jwt-login/plan.md), 갱신·종료는 [lifecycle](../jwt-refresh-lifecycle/plan.md), HTTP·Bearer·Container 조립은 [JWT API](../jwt-api/plan.md)에서 이어 구현했다. 로그인·갱신의 `user`에는 서버 계정의 nickname·status를 사용한다. 웹 쿠키·CSRF와 공개키 배포·교체, 권한 모델은 후속 범위다. 과거 검증·리뷰 결과는 해당 단계의 대상·시점으로 보존한다. (확인)
 
 ## 구현·변경 기록
 
@@ -142,3 +144,7 @@ Advisory DB는 실행 중 갱신했으며 기준 커밋은 `309392b18f6b17022f82
 사용자 요청으로 `auth/token/mod.rs`를 `auth/token.rs`로 옮기고 토큰 테스트를 같은 파일의 `#[cfg(test)] mod tests`에 합쳤다. Rust 모듈 경로·공개 API·테스트 이름과 기존 동작은 유지한다. 과거 리뷰의 경로·해시는 당시 검토 대상을 나타낸다. (확인)
 
 파일 통합 후 토큰 테스트 7개와 앱 전체 target clippy·fmt·diff 검사가 통과했다. (확인)
+
+## 구현·변경 기록: AUTH-05 문서 시점 보완
+
+사용자 요청으로 토큰 기반 최초 단계의 미연결 설명과 현재 저장·로그인·갱신·종료·API 연결 상태를 구분했다. 후속 문서 링크를 추가하고 과거 검증·리뷰는 유지했다. 문서·소스 대조와 diff 검사를 수행했으며 실행 코드와 기존 allow 사유는 변경하지 않았다. 실행 테스트는 다시 수행하지 않았다. (확인)
