@@ -93,3 +93,39 @@ impl IntoResponse for Error {
         })
     }
 }
+
+/// Web transport reuses the same issuance transaction and never returns secrets.
+pub(in crate::auth) async fn web_login(
+    State(container): State<Arc<Container>>,
+    cookies: tower_cookies::Cookies,
+    payload: Result<Json<usecase::Command>, JsonRejection>,
+) -> Response {
+    use crate::auth::web;
+    let result = match payload {
+        Err(error) => response::invalid_json(error),
+        Ok(Json(command)) => match container
+            .local_login
+            .execute_with_tokens(&container.database, command, &container.access_issuer)
+            .await
+        {
+            Ok(tokens) => {
+                let now = sqlx::types::time::OffsetDateTime::now_utc().unix_timestamp() as u64;
+                match container
+                    .access_verifier
+                    .verify(tokens.access.expose_secret(), now)
+                {
+                    Ok(claims) => {
+                        web::set_login(&cookies, &container.config.auth.web, &tokens, &claims);
+                        response::success(
+                            StatusCode::OK,
+                            serde_json::json!({"account_id": tokens.account.id, "status": tokens.account.status}),
+                        )
+                    }
+                    Err(_) => response::internal_error("issued access verification failed"),
+                }
+            }
+            Err(error) => error.into_response(),
+        },
+    };
+    web::no_store(result)
+}

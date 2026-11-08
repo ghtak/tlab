@@ -51,3 +51,23 @@ fn no_store(mut response: Response) -> Response {
         .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     response
 }
+
+pub(in crate::auth) async fn web_logout(
+    State(container): State<Arc<Container>>,
+    cookies: tower_cookies::Cookies,
+) -> Response {
+    use crate::auth::web;
+    let result = match cookies.get(container.config.auth.web.refresh_name()) {
+        None => crate::app::response::success(StatusCode::OK, serde_json::json!({})),
+        Some(refresh) => {
+            match super::usecase::execute(&container.database, refresh.value()).await {
+                Ok(()) | Err(super::usecase::Error::InvalidRefresh) => {
+                    crate::app::response::success(StatusCode::OK, serde_json::json!({}))
+                }
+                Err(error) => return web::no_store(operation_error(error)),
+            }
+        }
+    };
+    web::clear(&cookies, &container.config.auth.web);
+    web::no_store(result)
+}

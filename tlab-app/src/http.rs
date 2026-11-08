@@ -13,6 +13,7 @@ pub async fn run(container: Container) -> tlab::Result<()> {
     let container = Arc::new(container);
     let mut router: Router<Arc<Container>> = Router::new()
         .merge(crate::auth::router())
+        .merge(crate::auth::web::router(container.clone()))
         .route("/health", get(|| async { "ok" }))
         .route("/db_status", get(db_status));
     if let Some(files) = &container.config.server.static_files {

@@ -14,6 +14,7 @@ pub mod response;
 #[serde(default, deny_unknown_fields)]
 pub struct AuthConfig {
     pub jwt: JwtConfig,
+    pub web: crate::auth::web::Config,
     /// Shared capacity for password generation and verification.
     pub max_concurrent_password_hashes: usize,
 }
@@ -23,6 +24,7 @@ impl Default for AuthConfig {
         Self {
             max_concurrent_password_hashes: 2,
             jwt: JwtConfig::default(),
+            web: crate::auth::web::Config::default(),
         }
     }
 }
@@ -126,6 +128,7 @@ pub struct Container {
 impl Container {
     pub async fn new(config: Config) -> tlab::Result<Self> {
         config.server.validate()?;
+        config.auth.web.validate()?;
         if config.auth.max_concurrent_password_hashes == 0
             || config.auth.max_concurrent_password_hashes > Semaphore::MAX_PERMITS
         {

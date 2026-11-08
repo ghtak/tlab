@@ -54,7 +54,7 @@ status: draft
 | 갱신 요청 | Refresh 쿠키 | Refresh 전달 위치는 상세화 시 결정 |
 | 로그아웃 | 해당 Refresh 폐기·쿠키 제거 | 해당 Refresh 폐기 |
 
-API 갱신과 로그아웃은 Refresh를 JSON 요청 본문으로 전달한다. 구체 계약은 [JWT API](jwt-api/plan.md)를 따른다. 웹의 `HttpOnly`·`Secure` 쿠키와 CSRF 방어도 제안한 항목으로, 상세 정책을 구체화할 때 확정한다. (추론: 제안)
+API 갱신과 로그아웃은 Refresh를 JSON 요청 본문으로 전달한다. 구체 계약은 [JWT API](jwt-api/plan.md)를 따른다. 웹의 쿠키 자동 Access 갱신·HttpOnly/Secure·CSRF·캐시 및 오류 계약은 [JWT 웹 연결](jwt-web/plan.md)을 따른다. (확인)
 
 ## Access Token 정보 구성
 
@@ -107,10 +107,8 @@ Access JWT의 `sid`로 로그인 단위를 구분한다. 같은 계정의 별도
 
 다음 항목은 현재 합의와 구분하여 이후 요구사항·설계에서 정한다. (확인: 미결정)
 
-- 웹 쿠키 보호 속성·범위와 CSRF 방어 정책
-- 웹의 구체적인 경로·요청·응답 및 쿠키 전달 계약
 - Refresh 만료·폐기의 SQL 설계안을 바탕으로 앱 처리·검증 계약과 만료·폐기 행의 보관·정리 정책 확정
 - 공개키 제공·캐시·키 교체 방식과 기존 Access의 남은 유효기간 보장
 - JWT 검증 계약과 `user` 객체에 포함할 데이터·권한의 범위
 
-API 연결과 검증은 [JWT API](jwt-api/plan.md)에 기록한다. 웹 및 키 운영 항목은 후속이다.
+API 연결과 검증은 [JWT API](jwt-api/plan.md)에 기록한다. 웹 연결과 브라우저 미검증 범위는 [JWT 웹 연결](jwt-web/plan.md)에 기록한다. 키 운영은 후속이다.

@@ -81,4 +81,6 @@ JWT 기능을 책임별 작업 단위로 구현하고, 각 단계에서 실제 �
 
 5번 갱신·종료 usecase와 검증 범위는 [Refresh 갱신·종료 구현과 검증](jwt-refresh-lifecycle/plan.md)에 기록했다. HTTP 연결과 상태 변경 usecase 연결은 후속 범위다. (확인)
 
-6번 API 연계 계약과 검증은 [JWT API 계약과 검증](jwt-api/plan.md)에 기록했다. 웹 쿠키·CSRF와 공개키 배포·교체는 후속이다. (확인)
+6번 API 연계 계약과 검증은 [JWT API 계약과 검증](jwt-api/plan.md)에 기록했다. 웹 구현은 아래 기록을, 공개키 배포·교체는 후속 범위를 따른다. (확인)
+
+7번 웹 연계의 tower-cookies 적합성·slice 책임·쿠키 자동 Access 갱신·CSRF/캐시 계약과 검증은 [JWT 웹 연결](jwt-web/plan.md)에 기록했다. 실제 Router와 격리 PostgreSQL 검증을 완료했고 브라우저 정책은 실행 도구 부재로 미검증이다. (확인)

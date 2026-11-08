@@ -24,6 +24,13 @@ generate_if_missing = false
 issuer = "tlab"
 audience = "tlab-api"
 
+[auth.web]
+# Exact public origin; no trailing slash. Web unsafe requests require this Origin.
+origin = "https://localhost:8081"
+# Development HTTP only: also set origin to http://localhost:8080.
+# Uses separate tlab_dev_* cookies; production defaults remain Secure/HttpOnly.
+allow_insecure_http = false
+
 [database]
 # Set TLAB_APP_DATABASE__URL in .env or the environment.
 url = ""

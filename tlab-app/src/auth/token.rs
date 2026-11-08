@@ -24,6 +24,8 @@ pub enum Error {
     InvalidInput,
     #[error("access token rejected")]
     InvalidAccess,
+    #[error("access token expired")]
+    ExpiredAccess,
     #[error("access token signing failed")]
     SigningFailed,
     #[error("secure random generation failed")]
@@ -147,8 +149,13 @@ impl AccessVerifier {
         let claims = decode::<AccessClaims>(token, &self.key, &self.validation)
             .map_err(|_| Error::InvalidAccess)?
             .claims;
-        if !claims.valid(now) {
+        // Verify every non-expiry contract before classifying expiry. A bad
+        // signature/issuer/audience/shape must never enable Refresh fallback.
+        if !claims.valid(claims.iat) || claims.iat > now {
             return Err(Error::InvalidAccess);
+        }
+        if now >= claims.exp {
+            return Err(Error::ExpiredAccess);
         }
         Ok(claims)
     }
@@ -254,7 +261,7 @@ mod tests {
         assert!(verifier.verify(token.expose_secret(), NOW + 599).is_ok());
         assert!(matches!(
             verifier.verify(token.expose_secret(), NOW + 600),
-            Err(Error::InvalidAccess)
+            Err(Error::ExpiredAccess)
         ));
         assert!(verifier.verify(token.expose_secret(), NOW + 601).is_err());
         assert!(verifier.verify(token.expose_secret(), NOW - 1).is_err());
@@ -296,6 +303,40 @@ mod tests {
             &format!("{}.{}.", parts[0], parts[1]),
         ] {
             assert!(verifier.verify(invalid, NOW).is_err());
+        }
+    }
+
+    #[test]
+    fn expiry_classification_requires_signature_and_all_other_claim_contracts() {
+        let material = material();
+        let verifier = AccessVerifier::new(material.public_key_pem(), ISSUER, AUDIENCE).unwrap();
+        let expired_now = NOW + 601;
+        assert!(matches!(
+            verifier.verify(&sign(&material, &claims()), expired_now),
+            Err(Error::ExpiredAccess)
+        ));
+        let other_key = self::material();
+        assert!(matches!(
+            verifier.verify(&sign(&other_key, &claims()), expired_now),
+            Err(Error::InvalidAccess)
+        ));
+        for (field, value) in [
+            ("iss", json!("wrong")),
+            ("aud", json!("wrong")),
+            ("exp", json!(NOW + 599)),
+            ("sub", json!("")),
+            ("sid", json!(Uuid::nil())),
+            ("user", json!("invalid")),
+        ] {
+            let mut invalid = claims();
+            invalid[field] = value;
+            assert!(
+                matches!(
+                    verifier.verify(&sign(&material, &invalid), expired_now),
+                    Err(Error::InvalidAccess)
+                ),
+                "{field}"
+            );
         }
     }
 

@@ -19,6 +19,9 @@ where
     type Rejection = Response;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        if let Some(verified) = parts.extensions.get::<super::web::VerifiedWebClaims>() {
+            return Ok(verified.claims().clone());
+        }
         let reject = || {
             let mut response = response::error(
                 StatusCode::UNAUTHORIZED,
@@ -63,6 +66,32 @@ mod tests {
 
     async fn protected(claims: AccessClaims, Json(body): Json<Value>) -> Json<Value> {
         Json(json!({"sub": claims.sub, "body": body}))
+    }
+
+    #[tokio::test]
+    async fn arbitrary_claims_extension_cannot_authenticate_a_request() {
+        let (issuer, verifier) = crate::auth::test_support::token_keys();
+        let token = issuer
+            .issue(
+                "injected",
+                uuid::Uuid::new_v4(),
+                Default::default(),
+                1_800_000_000,
+            )
+            .unwrap();
+        let untrusted = verifier
+            .verify(token.expose_secret(), 1_800_000_000)
+            .unwrap();
+        let router = Router::new()
+            .route("/", post(protected))
+            .with_state(verifier);
+        let mut request = Request::post("/")
+            .header("content-type", "application/json")
+            .body(Body::from("{}"))
+            .unwrap();
+        request.extensions_mut().insert(untrusted);
+        let response = router.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
