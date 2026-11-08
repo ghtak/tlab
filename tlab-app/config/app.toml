@@ -20,7 +20,7 @@ max_concurrent_password_hashes = 2
 [auth.jwt]
 private_key = "./jwt_private.pem"
 public_key = "./jwt_public.pem"
-generate_if_missing = false
+generate_if_missing = true
 issuer = "tlab"
 audience = "tlab-api"
 
