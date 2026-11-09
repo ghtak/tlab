@@ -34,11 +34,15 @@ async fn container(database: app::db::Database) -> Arc<Container> {
         super::super::LocalLogin::new(hasher.clone(), slots.clone(), access_issuer.clone())
             .await
             .unwrap();
+    let database = Arc::new(database);
+    let role_permission_resolver =
+        Arc::new(crate::rbac::DbRolePermissionResolver::new(database.clone()));
     Arc::new(Container {
         http: tlab::http::Server::new(&config.server.http).await.unwrap(),
         https: tlab::http::Server::new(&config.server.https).await.unwrap(),
         config,
         database,
+        role_permission_resolver,
         passwd_hasher: hasher,
         passwd_policy: Arc::new(super::super::passwd_policy::NonEmptyPasswordPolicy),
         passwd_hash_slots: slots,

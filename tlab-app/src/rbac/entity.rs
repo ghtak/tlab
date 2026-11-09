@@ -64,7 +64,7 @@ impl PermissionSet {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, sqlx::FromRow)]
 pub(crate) struct Role {
     pub id: RoleId,
     pub name: String,

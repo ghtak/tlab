@@ -5,6 +5,7 @@ mod entity;
 mod policy;
 pub(crate) mod repository;
 mod resolver;
+pub(crate) mod slice;
 
 pub(crate) use authorization::require_permission;
 pub(crate) use claims::Actor;

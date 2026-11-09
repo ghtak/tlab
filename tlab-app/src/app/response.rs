@@ -53,6 +53,10 @@ impl IntoResponse for crate::app::error::AppError {
                 StatusCode::UNAUTHORIZED
             }
             AppErrorCode::AccountUnavailable => StatusCode::FORBIDDEN,
+            AppErrorCode::RbacForbidden => StatusCode::FORBIDDEN,
+            AppErrorCode::RbacNotFound => StatusCode::NOT_FOUND,
+            AppErrorCode::RbacConflict => StatusCode::CONFLICT,
+            AppErrorCode::RbacInvalidInput => StatusCode::BAD_REQUEST,
             AppErrorCode::Busy => StatusCode::SERVICE_UNAVAILABLE,
             AppErrorCode::InternalError => StatusCode::INTERNAL_SERVER_ERROR,
         };
@@ -80,5 +84,32 @@ impl IntoResponse for crate::app::error::AppError {
             axum::http::HeaderValue::from_static("no-store"),
         );
         response
+    }
+}
+
+#[cfg(test)]
+mod rbac_tests {
+    use super::*;
+    use crate::app::error::{AppError, AppErrorCode};
+
+    #[test]
+    fn rbac_failures_map_to_http_statuses() {
+        for (code, status) in [
+            (AppErrorCode::RbacForbidden, StatusCode::FORBIDDEN),
+            (AppErrorCode::RbacNotFound, StatusCode::NOT_FOUND),
+            (AppErrorCode::RbacConflict, StatusCode::CONFLICT),
+            (AppErrorCode::RbacInvalidInput, StatusCode::BAD_REQUEST),
+            (
+                AppErrorCode::InternalError,
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ),
+        ] {
+            let response = AppError::new(code, "error", "test").into_response();
+            assert_eq!(response.status(), status);
+            assert_eq!(
+                response.headers()[axum::http::header::CACHE_CONTROL],
+                "no-store"
+            );
+        }
     }
 }

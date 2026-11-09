@@ -486,3 +486,36 @@ CLI는 마이그레이션이 끝난 카탈로그를 전제로 한다. 최초 생
 - 격리 PostgreSQL 인증 테스트 **64 passed, 0 failed, 0 ignored**: 로그인 빈 역할·다중 역할, 갱신의 부여·회수 반영, 조회 장애 시 로그인 미저장과 기존 Refresh 행 보존, 웹 자동 갱신의 역할과 장애 시 500/no-store·쿠키 미변경을 확인했다. 기존 서명·commit 실패 rollback 및 쿠키 크기/무효 Refresh 계약도 포함한다. RBAC 저장소·인가 테스트 **15 passed, 0 failed, 0 ignored**. `cargo clippy -p tlab-app --all-targets --locked -- -D warnings`, `cargo fmt --all --check`, `git diff --check` 통과. 테스트 DB는 고유 스키마를 사용했다. (확인)
 - 중간 병렬 인증 테스트에서 기존 시각 기반 로그인 테스트 스키마명이 충돌해 63 passed, 1 failed가 발생했다. 테스트 격리 이름을 UUID로 바꾸고 최종 전체 인증 범위를 재실행해 위 결과를 얻었다. (확인)
 - 자체 점검에서 서버 조회만 발급 근거로 사용하는지, 로그인 조회가 저장 전 같은 tx에서 수행되는지, 갱신 실패가 기존 세션·쿠키를 변경하지 않는지 확인했다. 05·06 관리 기능, 07 인가 조립 및 08 통합 검증은 남아 있다. 기존 `app::tests::jwt_configuration_fails_before_connecting_to_database` 실패는 수정·재검증하지 않았고 전체 workspace 통과를 주장하지 않는다. 커밋·배포·다른 에이전트 실행은 하지 않았다. (확인)
+
+### 05 역할·퍼미션 관리 구현 및 자체 점검
+
+- 역할·퍼미션 조회와 역할 생성·메타데이터 변경·퍼미션 교체·삭제를 각각 `rbac/slice`의 시나리오별 route와 usecase로 구성했다. 역할 상세에서 현재 구성도 조회한다. 공통 잠금·인가 작업만 slice 공용 service로 두고, 전체 역할 목록은 저장소의 단일 조회로 반환한다. 인증 계정 잠금·상태 판정은 auth 공개 계약을 재사용한다. (확인)
+- 사용자 피드백에 따라 오류 생성 전용 함수를 없애고 발생 위치에서 공통 `AppError`를 만든다. 공통 `AppResult`를 추가해 usecase에서 사용한다. 역할 이름 고유 충돌만 409로 구분하고 다른 DB 오류는 원인을 보존한 내부 오류로 전달한다. HTTP 오류 코드는 공통 매핑에 추가했다. (확인)
+- 관리 쓰기는 요청 진입 권한 확인 후 같은 tx에서 행위자 계정 잠금·상태 확인, JWT 역할과 대상 역할의 정렬 잠금, 현재 퍼미션 재조회·정책 판단·version 확인·변경·commit 순서로 수행한다. 퍼미션 교체는 추가분만 위임 범위를 확인하고, 변경이 없으면 version을 올리지 않는다. 부여 중인 역할의 삭제는 충돌로 거부한다. (확인)
+- PostgreSQL 격리 스키마의 RBAC 테스트는 **17 passed, 0 failed, 0 ignored**. 목록·상세 및 100개를 넘는 전체 목록, 이름 충돌, 범위 내 추가·범위 밖 추가·자기 역할을 통한 상승 거부, 기존 강한 권한 제거, 동시 version 충돌, 강제 DB 쓰기 실패 rollback, 부여 중 삭제 거부, 오래된 resolver 결과의 tx 재인가를 확인했다. 이후 탈퇴 계정 검증을 추가한 관리 시나리오를 별도 재실행해 **1 passed**를 확인했다. HTTP 오류 상태 매핑 단위 테스트도 통과했다. (확인)
+- `cargo clippy -p tlab-app --all-targets --locked -- -D warnings`, `cargo fmt --all --check`, `git diff --check`를 확인했다. 각 handler는 임시 Router 조립으로 Axum 타입 검사를 통과했다. 실제 Router 등록·HTTP 통합 검증은 07·08의 범위이며 이번에 실행하지 않았다. 기존 workspace의 JWT 설정 테스트 실패도 재검증하지 않았다. (확인)
+- 07 인계: 각 slice의 handler는 `Arc<Container>`에서 resolver를 사용한다. Container가 DB와 resolver를 조립하며 07은 경로를 등록한다. `rbac.read`는 조회, `rbac.role.manage`는 쓰기에 사용하며 인증 claims에서 Actor를 만든다. 공통 `AppErrorCode`와 auth의 계정 잠금·상태 공개 계약은 05에서 연결했다. 06 계정 역할·초기 관리자 및 07 Router 조립은 아직 구현하지 않았다. (확인)
+
+### 05 후속 수정: resolver의 Container 소유
+
+- 사용자 지적에 따라 `RolePermissionResolver`를 HTTP `Extension`으로 받던 방식을 제거했다. `Container`가 DB를 `Arc`로 공유하고 같은 DB를 사용하는 `DbRolePermissionResolver`를 생성·소유하며, 각 관리 route가 Container에서 resolver를 전달한다. 07은 별도 resolver extension을 등록할 필요가 없다. (확인)
+- DB 소유 방식 변경에 맞춰 기존 인증 테스트의 Container 구성도 갱신했다. 격리 PostgreSQL 인증 테스트 **64 passed**, RBAC 테스트 **17 passed**, clippy(all-targets, `-D warnings`)·fmt check·diff check 통과. 실제 관리 Router 등록과 HTTP 통합 검증은 07·08에 남는다. (확인)
+
+### 05 후속 수정: 역할 entity 응답
+
+- 사용자 의견에 따라 필드가 동일한 `RoleResponse`를 제거하고 `Role` entity를 직접 직렬화한다. Chrono의 serde 직렬화를 사용하므로 UTC 시각의 표기는 기존 `+00:00` 대신 `Z`로 바뀌지만 같은 RFC 3339 시각을 나타낸다. (확인)
+- 관리 시나리오 PostgreSQL 테스트 1개, clippy(all-targets, `-D warnings`) 및 diff check 통과. 실제 Router 통합은 07·08에 남는다. (확인)
+
+### 05 코드 리뷰 선행 검사
+
+- 대상은 `f6265886d6c89544b773bc1a3f85693511f0f74b` 대비 05 및 후속 수정의 미커밋 변경이다. Rust 1.97.1 / Cargo 1.97.1, 기본 feature·workspace 기준 `cargo fmt --all -- --check`와 `cargo clippy --workspace --all-targets --locked -- -D warnings`는 통과했다. (확인)
+- 2026-11-09 12:39 UTC경 `cargo audit` 0.22.2는 advisory DB `899077d9d471b9fd3dbf4b2faea8ef26e83692e8` 기준 `Cargo.lock`의 `libsqlite3-sys` 0.37.0에 대해 [RUSTSEC-2026-0459](https://rustsec.org/advisories/RUSTSEC-2026-0459)를 보고하고 실패했다. 권고의 수정 버전은 0.39.0 이상이다. 기본 feature의 `cargo tree -i libsqlite3-sys --locked`에는 경로가 출력되지 않아 실제 활성 사용 여부는 이 결과만으로 확정하지 않는다. (확인)
+- 리뷰 선행 검사 실패로 **수정 필요, LLM 리뷰 미진행, 품질 점수 미산정**이다. 의존성 영향과 해결 방법을 확인하고 필수 검사를 다시 통과한 뒤 코드 리뷰를 진행해야 한다. Miri는 unsafe·메모리 조작 변경이 없어 비대상이며 Geiger는 실행하지 않았다. 리뷰 요청에 따라 코드는 수정하지 않았다. (확인·추론)
+
+### 05 코드 리뷰: audit 제외 후 진행
+
+- 사용자의 명시 요청으로 이번 리뷰에서 audit 통과 조건만 제외했다. 앞선 `RUSTSEC-2026-0459` 경고와 실제 활성 사용 여부 미확인은 그대로다. 대상은 `f6265886d6c89544b773bc1a3f85693511f0f74b` 대비 미커밋 변경이며 리뷰 중 확인한 Cargo.lock SHA-256은 `36a646587c341d684616e0fc1919d1982e5bfcc24ea13edf865abc6db4d90dd7`이다. 이전 검사 후 lockfile의 여러 의존성 버전이 바뀌어 현재 파일 기준으로 검사를 재실행했다. (확인)
+- `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, 격리 PostgreSQL 인증 테스트 64개와 RBAC 테스트 17개 통과. Miri는 Rust unsafe·메모리 조작 변경이 없어 비대상, Geiger는 실행하지 않았다. 07 Router 연결 및 실제 HTTP 통합과 기존 workspace JWT 설정 테스트는 이번에 검증하지 않았다. (확인)
+- **주요: 탈퇴 계정 테스트의 거짓 양성.** `rbac_storage.rs`는 관리 퍼미션을 먼저 삭제한 다음 같은 계정을 탈퇴시키므로, 계정 상태 검사를 제거해도 현재 퍼미션 재조회에서 거부된다. 관리 퍼미션을 유지한 탈퇴 계정과 허용 상태 대조군으로 거부 및 미변경을 확인해야 한다. (확인·추론)
+- **주요: usecase의 역할 잠금 경합 검증 부족.** 동시 version 테스트는 같은 행위자를 사용해 계정 잠금에서 직렬화된다. 저장소 잠금 테스트와 정적 stale resolver 테스트는 서로 다른 계정의 관리 작업이 같은 역할을 두고 기다린 뒤 최신 권한으로 재판정하는 계약을 직접 증명하지 않는다. 두 행위자와 실제 잠금 대기·권한 제거/변경 후 결과 및 저장 상태를 확인해야 한다. (확인·추론)
+- 판정 **수정 필요**, 72.5/100: 기능 3/4, 가독성·구조 3/4, 안정성 3/4, 보안 3/4, 성능 3/4, 테스트 용이성 2/4. 검증 결함이므로 실제 권한 우회를 재현한 것은 아니다. 역할 관리 usecase와 Container 의존성 조립이 추가되어 아키텍처 변경은 있다. 실제 롤백·DB 상태 복구를 검증하지 않아 복구 가능성과 리스크 등급은 미확인이다. 05 handler는 아직 등록되지 않았으며 07 이후 실제 쓰기와 데이터 복구 조건을 다시 확인해야 한다. (확인·추론)

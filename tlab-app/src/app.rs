@@ -120,7 +120,8 @@ pub struct Container {
     pub passwd_policy: Arc<dyn PasswordPolicy>,
     pub passwd_hash_slots: Arc<Semaphore>,
     pub local_login: crate::auth::LocalLogin,
-    pub database: db::Database,
+    pub database: Arc<db::Database>,
+    pub(crate) role_permission_resolver: Arc<dyn crate::rbac::RolePermissionResolver>,
     pub access_issuer: Arc<crate::auth::token::AccessIssuer>,
     pub access_verifier: Arc<crate::auth::token::AccessVerifier>,
 }
@@ -151,7 +152,9 @@ impl Container {
             access_issuer.clone(),
         )
         .await?;
-        let database = db::Database::new(&config.database).await?;
+        let database = Arc::new(db::Database::new(&config.database).await?);
+        let role_permission_resolver =
+            Arc::new(crate::rbac::DbRolePermissionResolver::new(database.clone()));
         Ok(Self {
             config,
             http,
@@ -161,6 +164,7 @@ impl Container {
             passwd_hash_slots,
             local_login,
             database,
+            role_permission_resolver,
             access_issuer,
             access_verifier,
         })

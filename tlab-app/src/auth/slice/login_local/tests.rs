@@ -237,10 +237,14 @@ async fn fixture(url: String) -> (Arc<Container>, Value, i64) {
         usecase::LocalLogin::new(hasher.clone(), slots.clone(), access_issuer.clone())
             .await
             .unwrap();
+    let database = Arc::new(app::db::Database::new(&config.database).await.unwrap());
+    let role_permission_resolver =
+        Arc::new(crate::rbac::DbRolePermissionResolver::new(database.clone()));
     let container = Arc::new(Container {
         http: tlab::http::Server::new(&config.server.http).await.unwrap(),
         https: tlab::http::Server::new(&config.server.https).await.unwrap(),
-        database: app::db::Database::new(&config.database).await.unwrap(),
+        database,
+        role_permission_resolver,
         passwd_hasher: hasher,
         passwd_policy: Arc::new(NonEmptyPasswordPolicy),
         passwd_hash_slots: slots,

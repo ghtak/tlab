@@ -1,6 +1,8 @@
 //! Application failures: public descriptions and private diagnostic context.
 use serde::Serialize;
 
+pub type AppResult<T> = std::result::Result<T, AppError>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum AppErrorCode {
@@ -14,6 +16,10 @@ pub enum AppErrorCode {
     AccountUnavailable,
     Busy,
     InvalidRefreshToken,
+    RbacForbidden,
+    RbacNotFound,
+    RbacConflict,
+    RbacInvalidInput,
     InternalError,
 }
 

@@ -41,6 +41,12 @@ pub(crate) async fn lock_by_ids(ctx: &mut Context<'_>, ids: &[RoleId]) -> Result
     }
     Ok(roles)
 }
+pub(crate) async fn list_all(ctx: &mut Context<'_>) -> Result<Vec<Role>> {
+    sqlx::query_as::<_, Role>("SELECT * FROM tlab_rbac_role ORDER BY id")
+        .fetch_all(ctx.backend())
+        .await
+        .map_err(Into::into)
+}
 pub(crate) async fn list(
     ctx: &mut Context<'_>,
     after: Option<RoleId>,
