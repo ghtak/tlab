@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 async-trait = "0.1"
+chrono = "0.4"
 axum = { version = "0.8", default-features = false, features = ["http1", "http2", "json", "tokio"] }
 dotenvy = "0.15"
 email_address = { version = "0.2", default-features = false }
@@ -16,7 +17,7 @@ serde_json = "1"
 thiserror = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 serde = { version = "1", features = ["derive"] }
-sqlx = { version = "0.9", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls-ring-native-roots", "derive", "time", "uuid"] }
+sqlx = { version = "0.9", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls-ring-native-roots", "derive", "chrono", "uuid"] }
 tlab = { path = "../tlab" }
 tokio = { version = "1.54.1", features = ["full"] }
 tracing = "0.1"

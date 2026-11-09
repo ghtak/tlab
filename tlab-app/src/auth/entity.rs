@@ -1,4 +1,4 @@
-use sqlx::types::time::OffsetDateTime;
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use super::token::RefreshHash;
@@ -16,10 +16,10 @@ pub struct NewRefreshToken {
     pub session_id: Uuid,
     pub account_id: i64,
     pub token_hash: RefreshHash,
-    pub session_created_at: OffsetDateTime,
-    pub session_expires_at: OffsetDateTime,
-    pub created_at: OffsetDateTime,
-    pub expires_at: OffsetDateTime,
+    pub session_created_at: DateTime<Utc>,
+    pub session_expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
 }
 
 // No Debug or Serialize: the hash is token-derived material.
@@ -33,11 +33,11 @@ pub struct RefreshToken {
     pub session_id: Uuid,
     pub account_id: i64,
     pub token_hash: Vec<u8>,
-    pub session_created_at: OffsetDateTime,
-    pub session_expires_at: OffsetDateTime,
-    pub created_at: OffsetDateTime,
-    pub expires_at: OffsetDateTime,
-    pub revoked_at: Option<OffsetDateTime>,
+    pub session_created_at: DateTime<Utc>,
+    pub session_expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    pub revoked_at: Option<DateTime<Utc>>,
     pub revoke_reason: Option<RevokeReason>,
 }
 
@@ -63,7 +63,7 @@ pub enum Provider {
 pub struct NewAccount {
     pub nickname: String,
     pub status: AccountStatus,
-    pub withdrawn_at: Option<OffsetDateTime>,
+    pub withdrawn_at: Option<DateTime<Utc>>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -75,9 +75,9 @@ pub struct Account {
     pub id: i64,
     pub nickname: String,
     pub status: AccountStatus,
-    pub withdrawn_at: Option<OffsetDateTime>,
-    pub created_at: OffsetDateTime,
-    pub updated_at: OffsetDateTime,
+    pub withdrawn_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 // No Debug or Serialize: identity entities contain password hashes.
@@ -87,7 +87,7 @@ pub struct NewIdentity {
     pub provider: Provider,
     pub provider_subject: Option<String>,
     pub email: String,
-    pub email_verified_at: Option<OffsetDateTime>,
+    pub email_verified_at: Option<DateTime<Utc>>,
     pub password_hash: Option<String>,
 }
 
@@ -103,8 +103,8 @@ pub struct Identity {
     pub provider: Provider,
     pub provider_subject: Option<String>,
     pub email: String,
-    pub email_verified_at: Option<OffsetDateTime>,
+    pub email_verified_at: Option<DateTime<Utc>>,
     pub password_hash: Option<String>,
-    pub created_at: OffsetDateTime,
-    pub updated_at: OffsetDateTime,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }

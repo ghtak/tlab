@@ -6,8 +6,8 @@ use crate::auth::{
     test_support::{isolated, session_setup as setup, token_keys as keys},
     token::AccessIssuer,
 };
+use chrono::Utc;
 use jsonwebtoken::EncodingKey;
-use sqlx::types::time::OffsetDateTime;
 use std::{sync::Arc, time::Duration};
 
 #[tokio::test]
@@ -33,7 +33,7 @@ async fn repeated_refresh_preserves_session_and_uses_latest_account() {
             refresh_access_token::execute(&db, secret.expose_secret(), &issuer)
         );
         for token in [a.unwrap(), b.unwrap()] {
-            let now = OffsetDateTime::now_utc().unix_timestamp() as u64;
+            let now = Utc::now().timestamp() as u64;
             let claims = verifier.verify(token.expose_secret(), now).unwrap();
             assert_eq!(claims.sid, sid);
             assert_eq!(claims.sub, id.to_string());
@@ -118,7 +118,7 @@ async fn refresh_does_not_wait_for_uncommitted_logout() {
             &mut holder.context(),
             id,
             sid,
-            OffsetDateTime::now_utc(),
+            Utc::now(),
             RevokeReason::Logout,
         )
         .await
@@ -132,10 +132,7 @@ async fn refresh_does_not_wait_for_uncommitted_logout() {
         .unwrap();
         holder.commit().await.unwrap();
         verifier
-            .verify(
-                access.expose_secret(),
-                OffsetDateTime::now_utc().unix_timestamp() as u64,
-            )
+            .verify(access.expose_secret(), Utc::now().timestamp() as u64)
             .unwrap();
         assert!(matches!(
             refresh_access_token::execute(&db, secret.expose_secret(), &issuer).await,
@@ -198,10 +195,7 @@ async fn concurrent_logout_and_refresh_leave_session_revoked() {
         match refresh {
             Ok(access) => {
                 verifier
-                    .verify(
-                        access.expose_secret(),
-                        OffsetDateTime::now_utc().unix_timestamp() as u64,
-                    )
+                    .verify(access.expose_secret(), Utc::now().timestamp() as u64)
                     .unwrap();
             }
             Err(AppError {
@@ -261,7 +255,7 @@ async fn refresh_read_before_logout_can_finish_after_logout_commits() {
         logout::execute(&db, secret.expose_secret()).await.unwrap();
         holder.commit().await.unwrap();
         let access = tokio::time::timeout(Duration::from_secs(3), &mut pending).await.unwrap().unwrap();
-        verifier.verify(access.expose_secret(), OffsetDateTime::now_utc().unix_timestamp() as u64).unwrap();
+        verifier.verify(access.expose_secret(), Utc::now().timestamp() as u64).unwrap();
         assert!(matches!(refresh_access_token::execute(&db, secret.expose_secret(), &issuer).await, Err(AppError { code: AppErrorCode::InvalidRefreshToken, .. })));
     }).await;
 }

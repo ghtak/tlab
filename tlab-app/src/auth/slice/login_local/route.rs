@@ -69,7 +69,7 @@ pub(in crate::auth) async fn web_login(
             .await
         {
             Ok(tokens) => {
-                let now = sqlx::types::time::OffsetDateTime::now_utc().unix_timestamp() as u64;
+                let now = chrono::Utc::now().timestamp() as u64;
                 let claims = match container
                     .access_verifier
                     .verify(tokens.access.expose_secret(), now)

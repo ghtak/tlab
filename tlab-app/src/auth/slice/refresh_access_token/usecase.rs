@@ -9,7 +9,7 @@ use crate::{
         token::{AccessIssuer, AccessToken, RefreshHash},
     },
 };
-use sqlx::types::time::OffsetDateTime;
+use chrono::Utc;
 
 pub async fn execute(
     database: &Database,
@@ -38,7 +38,7 @@ pub async fn execute(
             "refresh token rejected",
             "validate_refresh",
         ))?;
-    let now = OffsetDateTime::now_utc();
+    let now = Utc::now();
     if !session_policy::allowed(&account)
         || row.revoked_at.is_some()
         || now >= row.expires_at
@@ -50,7 +50,7 @@ pub async fn execute(
             "validate_refresh",
         ));
     }
-    let timestamp = u64::try_from(now.unix_timestamp()).map_err(|e| {
+    let timestamp = u64::try_from(now.timestamp()).map_err(|e| {
         AppError::internal(
             "refresh_clock",
             "refresh operation failed",

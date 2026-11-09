@@ -1,4 +1,4 @@
-use sqlx::types::time::OffsetDateTime;
+use chrono::{DateTime, Utc};
 use std::collections::BTreeSet;
 
 #[derive(
@@ -70,8 +70,8 @@ pub(crate) struct Role {
     pub name: String,
     pub description: String,
     pub version: i64,
-    pub created_at: OffsetDateTime,
-    pub updated_at: OffsetDateTime,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 pub(crate) struct NewRole {
     pub name: String,
@@ -98,5 +98,5 @@ pub(crate) struct NewAccountRole {
 pub(crate) struct AccountRole {
     pub account_id: i64,
     pub role_id: RoleId,
-    pub granted_at: OffsetDateTime,
+    pub granted_at: DateTime<Utc>,
 }

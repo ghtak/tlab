@@ -429,7 +429,7 @@ async fn login_issues_independent_sessions() {
                 )
                 .await
                 .unwrap();
-            let now = sqlx::types::time::OffsetDateTime::now_utc().unix_timestamp() as u64;
+            let now = chrono::Utc::now().timestamp() as u64;
             let claims = verifier.verify(result.access.expose_secret(), now).unwrap();
             assert_eq!(claims.sub, id.to_string());
             assert_eq!(claims.user["nickname"], "member");
@@ -446,12 +446,9 @@ async fn login_issues_independent_sessions() {
             assert_eq!(row.session_id, claims.sid);
             assert_eq!(row.token_hash, result.refresh.hash().as_bytes());
             assert_ne!(row.token_hash, result.refresh.expose_secret().as_bytes());
-            assert_eq!(row.created_at.unix_timestamp(), claims.iat as i64);
+            assert_eq!(row.created_at.timestamp(), claims.iat as i64);
             assert_eq!(row.session_created_at, row.created_at);
-            assert_eq!(
-                (row.expires_at - row.created_at).whole_seconds(),
-                168 * 3600
-            );
+            assert_eq!((row.expires_at - row.created_at).num_seconds(), 168 * 3600);
             assert_eq!(row.session_expires_at, row.expires_at);
             sessions.push((claims.sid, result.refresh.expose_secret().to_owned()));
         }

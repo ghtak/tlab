@@ -196,7 +196,7 @@ async fn missing_access_refreshes_same_request_and_preserves_refresh_row() {
         };
         assert_eq!(
             before.expires_at - before.session_created_at,
-            Duration::days(7)
+            chrono::Duration::days(7)
         );
         assert_refresh_response(
             container.clone(),
@@ -419,9 +419,15 @@ async fn web_login_issues_secure_cookies_after_common_issuance() {
         .await
         .unwrap()
         .unwrap();
-        assert_eq!(refresh.expires_datetime().unwrap(), row.expires_at);
+        assert_eq!(
+            refresh.expires_datetime().unwrap().unix_timestamp(),
+            row.expires_at.timestamp()
+        );
         assert_eq!(row.session_expires_at, row.expires_at);
-        assert_eq!(row.expires_at - row.session_created_at, Duration::days(7));
+        assert_eq!(
+            row.expires_at - row.session_created_at,
+            chrono::Duration::days(7)
+        );
         assert_eq!(claims.sid, row.session_id);
         assert!(refresh.max_age().unwrap().whole_seconds() <= 604800);
         assert!(access.max_age().unwrap().whole_seconds() <= 600);

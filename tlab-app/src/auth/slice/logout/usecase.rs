@@ -5,7 +5,7 @@ use crate::{
     },
     auth::{entity::RevokeReason, repository::refresh_token, token::RefreshHash},
 };
-use sqlx::types::time::OffsetDateTime;
+use chrono::Utc;
 
 /// An existing token identifies its session even if expired or already revoked.
 pub async fn execute(database: &Database, raw: &str) -> Result<(), AppError> {
@@ -25,7 +25,7 @@ pub async fn execute(database: &Database, raw: &str) -> Result<(), AppError> {
         &mut tx.context(),
         row.account_id,
         row.session_id,
-        OffsetDateTime::now_utc(),
+        Utc::now(),
         RevokeReason::Logout,
     )
     .await

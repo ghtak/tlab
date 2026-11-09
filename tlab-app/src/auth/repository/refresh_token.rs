@@ -4,7 +4,7 @@
     reason = "Refresh storage is connected by later authentication slices"
 )]
 
-use sqlx::types::time::OffsetDateTime;
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::{
@@ -54,7 +54,7 @@ pub async fn revoke_session(
     ctx: &mut Context<'_>,
     account_id: i64,
     session_id: Uuid,
-    at: OffsetDateTime,
+    at: DateTime<Utc>,
     reason: RevokeReason,
 ) -> tlab::Result<u64> {
     Ok(sqlx::query("UPDATE tlab_auth_refresh_token SET revoked_at=$3, revoke_reason=$4 WHERE account_id=$1 AND session_id=$2 AND revoked_at IS NULL")
@@ -65,7 +65,7 @@ pub async fn revoke_session(
 pub async fn revoke_account(
     ctx: &mut Context<'_>,
     account_id: i64,
-    at: OffsetDateTime,
+    at: DateTime<Utc>,
     reason: RevokeReason,
 ) -> tlab::Result<u64> {
     Ok(sqlx::query("UPDATE tlab_auth_refresh_token SET revoked_at=$2, revoke_reason=$3 WHERE account_id=$1 AND revoked_at IS NULL")
@@ -80,7 +80,7 @@ mod tests {
         repository::account,
         token::RefreshToken as Secret,
     };
-    use sqlx::types::time::OffsetDateTime;
+    use chrono::{DateTime, Timelike, Utc};
     use std::time::Duration;
 
     type Database = crate::app::db::Database;
@@ -102,7 +102,7 @@ mod tests {
         .id
     }
 
-    fn new_refresh(account_id: i64, now: OffsetDateTime) -> NewRefreshToken {
+    fn new_refresh(account_id: i64, now: DateTime<Utc>) -> NewRefreshToken {
         NewRefreshToken {
             session_id: Uuid::new_v4(),
             account_id,
@@ -113,8 +113,8 @@ mod tests {
             expires_at: now + Duration::from_secs(168 * 3600),
         }
     }
-    fn now() -> OffsetDateTime {
-        OffsetDateTime::now_utc().replace_nanosecond(0).unwrap()
+    fn now() -> DateTime<Utc> {
+        Utc::now().with_nanosecond(0).unwrap()
     }
 
     #[tokio::test]
@@ -465,7 +465,7 @@ mod tests {
             revoke_account(
                 &mut tx.context(),
                 id,
-                OffsetDateTime::now_utc(),
+                Utc::now(),
                 RevokeReason::AccountWithdrawn,
             )
             .await

@@ -6,7 +6,7 @@ use crate::auth::{
     test_support::{isolated, session_setup as setup, token_keys as keys},
     token::RefreshToken as Secret,
 };
-use sqlx::types::time::OffsetDateTime;
+use chrono::Utc;
 use std::time::Duration;
 
 #[tokio::test]
@@ -27,7 +27,7 @@ async fn logout_and_account_revocation_preserve_first_result() {
         logout::execute(&db, first.expose_secret()).await.unwrap();
         let mut tx = db.tx().await.unwrap();
         account::lock_by_id(&mut tx.context(), id).await.unwrap().unwrap();
-        assert_eq!(refresh_token::revoke_account(&mut tx.context(), id, OffsetDateTime::now_utc(), RevokeReason::AccountWithdrawn).await.unwrap(), 1);
+        assert_eq!(refresh_token::revoke_account(&mut tx.context(), id, Utc::now(), RevokeReason::AccountWithdrawn).await.unwrap(), 1);
         tx.commit().await.unwrap();
         let mut conn = db.conn().await.unwrap();
         let row = refresh_token::find_by_hash(&mut conn.context(), &first.hash()).await.unwrap().unwrap();

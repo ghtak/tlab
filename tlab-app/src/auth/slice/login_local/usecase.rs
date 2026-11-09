@@ -1,3 +1,4 @@
+use chrono::Timelike;
 use std::sync::Arc;
 
 use email_address::{EmailAddress, Options};
@@ -89,16 +90,10 @@ impl LocalLogin {
                 "account_status",
             ));
         }
-        let now = sqlx::types::time::OffsetDateTime::now_utc()
-            .replace_nanosecond(0)
-            .map_err(|e| {
-                AppError::internal(
-                    "login_clock",
-                    "local login failed",
-                    tlab::Error::Internal(e.into()),
-                )
-            })?;
-        let timestamp = u64::try_from(now.unix_timestamp()).map_err(|e| {
+        let now = chrono::Utc::now()
+            .with_nanosecond(0)
+            .expect("zero nanoseconds is valid");
+        let timestamp = u64::try_from(now.timestamp()).map_err(|e| {
             AppError::internal(
                 "login_clock",
                 "local login failed",

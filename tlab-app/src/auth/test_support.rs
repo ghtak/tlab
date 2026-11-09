@@ -1,3 +1,4 @@
+use chrono::Timelike;
 use std::future::Future;
 use uuid::Uuid;
 type Database = crate::app::db::Database;
@@ -59,7 +60,7 @@ use super::{
     repository::{account, refresh_token},
     token::{AccessIssuer, RefreshToken as Secret},
 };
-use sqlx::types::time::OffsetDateTime;
+use chrono::Utc;
 use std::time::Duration;
 
 pub(super) async fn session_setup(db: &Database) -> (i64, Secret, uuid::Uuid) {
@@ -77,7 +78,7 @@ pub(super) async fn session_setup(db: &Database) -> (i64, Secret, uuid::Uuid) {
     .unwrap();
     let secret = Secret::generate().unwrap();
     let sid = uuid::Uuid::new_v4();
-    let now = OffsetDateTime::now_utc().replace_nanosecond(0).unwrap();
+    let now = Utc::now().with_nanosecond(0).unwrap();
     refresh_token::insert(
         &mut conn.context(),
         &NewRefreshToken {
