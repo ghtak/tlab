@@ -12,6 +12,38 @@ use std::{sync::Arc, time::Duration};
 
 #[tokio::test]
 #[ignore = "requires PostgreSQL and TLAB_TEST_DATABASE_URL"]
+async fn refresh_reads_current_roles_and_preserves_session_on_lookup_failure() {
+    isolated(|db| async move {
+        let (id, secret, _) = setup(&db).await;
+        let (issuer, verifier) = keys();
+        let read = |token: crate::auth::token::AccessToken| {
+            verifier.verify(token.expose_secret(), Utc::now().timestamp() as u64).unwrap().user["role_ids"].clone()
+        };
+        assert_eq!(read(refresh_access_token::execute(&db, secret.expose_secret(), &issuer).await.unwrap()), serde_json::json!([]));
+        let mut conn = db.conn().await.unwrap();
+        let ids: Vec<i64> = sqlx::query_scalar("INSERT INTO tlab_rbac_role (name, description) VALUES ('a', ''), ('b', '') RETURNING id").fetch_all(conn.context().backend()).await.unwrap();
+        for role in &ids {
+            sqlx::query("INSERT INTO tlab_rbac_account_role (account_id, role_id) VALUES ($1, $2)").bind(id).bind(role).execute(conn.context().backend()).await.unwrap();
+        }
+        drop(conn);
+        assert_eq!(read(refresh_access_token::execute(&db, secret.expose_secret(), &issuer).await.unwrap()), serde_json::json!(ids));
+        let mut conn = db.conn().await.unwrap();
+        sqlx::query("DELETE FROM tlab_rbac_account_role WHERE account_id=$1 AND role_id=$2").bind(id).bind(ids[0]).execute(conn.context().backend()).await.unwrap();
+        drop(conn);
+        assert_eq!(read(refresh_access_token::execute(&db, secret.expose_secret(), &issuer).await.unwrap()), serde_json::json!([ids[1]]));
+        let mut conn = db.conn().await.unwrap();
+        let before: String = sqlx::query_scalar("SELECT row_to_json(t)::text FROM tlab_auth_refresh_token t").fetch_one(conn.context().backend()).await.unwrap();
+        sqlx::query("ALTER TABLE tlab_rbac_account_role RENAME TO unavailable_roles").execute(conn.context().backend()).await.unwrap();
+        drop(conn);
+        assert!(matches!(refresh_access_token::execute(&db, secret.expose_secret(), &issuer).await, Err(e @ AppError { code: AppErrorCode::InternalError, .. }) if e.stage == "list_role_ids"));
+        let mut conn = db.conn().await.unwrap();
+        let after: String = sqlx::query_scalar("SELECT row_to_json(t)::text FROM tlab_auth_refresh_token t").fetch_one(conn.context().backend()).await.unwrap();
+        assert_eq!(before, after);
+    }).await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL and TLAB_TEST_DATABASE_URL"]
 async fn repeated_refresh_preserves_session_and_uses_latest_account() {
     isolated(|db| async move {
         let (id, secret, sid) = setup(&db).await;

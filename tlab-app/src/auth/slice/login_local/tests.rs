@@ -1,8 +1,5 @@
 use crate::app::error::{AppError, AppErrorCode};
-use std::{
-    sync::{Arc, Condvar, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::sync::{Arc, Condvar, Mutex};
 
 use axum::{
     body::{Body, to_bytes},
@@ -203,14 +200,7 @@ where
     })
     .await
     .unwrap();
-    let schema = format!(
-        "tlab_login_test_{}_{}",
-        std::process::id(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    );
+    let schema = format!("tlab_login_test_{}", uuid::Uuid::new_v4().simple());
     let mut conn = admin.conn().await.unwrap();
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
         .execute(conn.context().backend())
@@ -268,6 +258,12 @@ async fn fixture(url: String) -> (Arc<Container>, Value, i64) {
     .unwrap();
     sqlx::raw_sql(include_str!(
         "../../../../migrations/0002_create_tlab_auth_refresh_token.sql"
+    ))
+    .execute(conn.context().backend())
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/0003_create_tlab_rbac.sql"
     ))
     .execute(conn.context().backend())
     .await
@@ -418,7 +414,8 @@ async fn login_issues_independent_sessions() {
         )
         .await
         .unwrap();
-        for _ in 0..2 {
+        let mut expected_roles = json!([]);
+        for iteration in 0..2 {
             let result = local_login
                 .execute_with_tokens(
                     &container.database,
@@ -433,6 +430,7 @@ async fn login_issues_independent_sessions() {
             let claims = verifier.verify(result.access.expose_secret(), now).unwrap();
             assert_eq!(claims.sub, id.to_string());
             assert_eq!(claims.user["nickname"], "member");
+            assert_eq!(claims.user["role_ids"], expected_roles);
             assert!(claims.user.get("roles").is_none());
             assert_eq!(claims.exp - claims.iat, 600);
             let mut conn = container.database.conn().await.unwrap();
@@ -451,6 +449,13 @@ async fn login_issues_independent_sessions() {
             assert_eq!((row.expires_at - row.created_at).num_seconds(), 168 * 3600);
             assert_eq!(row.session_expires_at, row.expires_at);
             sessions.push((claims.sid, result.refresh.expose_secret().to_owned()));
+            if iteration == 0 {
+                let ids: Vec<i64> = sqlx::query_scalar("INSERT INTO tlab_rbac_role (name, description) VALUES ('a', ''), ('b', '') RETURNING id").fetch_all(conn.context().backend()).await.unwrap();
+                for role in &ids {
+                    sqlx::query("INSERT INTO tlab_rbac_account_role (account_id, role_id) VALUES ($1, $2)").bind(id).bind(role).execute(conn.context().backend()).await.unwrap();
+                }
+                expected_roles = json!(ids);
+            }
         }
         assert_ne!(sessions[0].0, sessions[1].0);
         assert_ne!(sessions[0].1, sessions[1].1);
@@ -488,6 +493,18 @@ async fn login_signing_insert_and_commit_failures() {
             email: "User@example.com".into(),
             password: " secret ".into(),
         };
+
+        let mut conn = container.database.conn().await.unwrap();
+        sqlx::query("ALTER TABLE tlab_rbac_account_role RENAME TO unavailable_roles").execute(conn.context().backend()).await.unwrap();
+        drop(conn);
+        let local_login = LocalLogin::new(container.passwd_hasher.clone(), container.passwd_hash_slots.clone(), valid_issuer.clone()).await.unwrap();
+        let failed = local_login.execute_with_tokens(&container.database, command()).await;
+        assert!(matches!(failed, Err(e @ AppError { code: AppErrorCode::InternalError, .. }) if e.stage == "list_role_ids"));
+        let mut conn = container.database.conn().await.unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM tlab_auth_refresh_token").fetch_one(conn.context().backend()).await.unwrap();
+        assert_eq!(count, 0);
+        sqlx::query("ALTER TABLE unavailable_roles RENAME TO tlab_rbac_account_role").execute(conn.context().backend()).await.unwrap();
+        drop(conn);
 
         let local_login = LocalLogin::new(container.passwd_hasher.clone(), container.passwd_hash_slots.clone(), invalid_issuer.clone()).await.unwrap();
         let failed = local_login

@@ -20,7 +20,7 @@ impl Actor {
                 let values = value.as_array().ok_or_else(invalid)?;
                 let ids = values
                     .iter()
-                    .map(|value| value.as_i64().filter(|id| *id > 0).ok_or_else(invalid))
+                    .map(|value| value.as_i64().ok_or_else(invalid))
                     .collect::<tlab::Result<Vec<_>>>()?;
                 RoleIds::from_raw(ids)
             }

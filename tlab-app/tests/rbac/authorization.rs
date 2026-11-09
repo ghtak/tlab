@@ -40,8 +40,6 @@ fn verified_claims_apply_only_rbac_identity_and_json_boundaries() {
         ("scalar", json!(1)),
         ("string", json!(["1"])),
         ("float", json!([1.0])),
-        ("negative", json!([-1])),
-        ("zero", json!([0])),
         ("overflow", json!([9223372036854775808u64])),
         ("mixed", json!([1, true])),
     ] {

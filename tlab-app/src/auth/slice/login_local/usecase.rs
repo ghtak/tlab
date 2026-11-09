@@ -90,6 +90,9 @@ impl LocalLogin {
                 "account_status",
             ));
         }
+        let role_ids = crate::rbac::list_role_ids(&mut tx.context(), account.id)
+            .await
+            .map_err(|e| AppError::internal("list_role_ids", "local login failed", e))?;
         let now = chrono::Utc::now()
             .with_nanosecond(0)
             .expect("zero nanoseconds is valid");
@@ -123,7 +126,7 @@ impl LocalLogin {
         )
         .await
         .map_err(|e| AppError::internal("refresh_insert", "local login failed", e))?;
-        let user = crate::auth::session_policy::user_claim(&account);
+        let user = crate::auth::session_policy::user_claim(&account, &role_ids);
         let access = self
             .access_issuer
             .issue(&account.id.to_string(), sid, user, timestamp)

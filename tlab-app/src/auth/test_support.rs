@@ -44,6 +44,10 @@ where
         .execute(conn.context().backend())
         .await
         .unwrap();
+        sqlx::raw_sql(include_str!("../../migrations/0003_create_tlab_rbac.sql"))
+            .execute(conn.context().backend())
+            .await
+            .unwrap();
         drop(conn);
         scenario(db).await;
     })

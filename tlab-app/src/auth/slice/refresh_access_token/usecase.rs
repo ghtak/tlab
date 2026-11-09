@@ -50,6 +50,9 @@ pub async fn execute(
             "validate_refresh",
         ));
     }
+    let role_ids = crate::rbac::list_role_ids(&mut conn.context(), account.id)
+        .await
+        .map_err(|e| AppError::internal("list_role_ids", "refresh operation failed", e))?;
     let timestamp = u64::try_from(now.timestamp()).map_err(|e| {
         AppError::internal(
             "refresh_clock",
@@ -61,7 +64,7 @@ pub async fn execute(
         .issue(
             &row.account_id.to_string(),
             row.session_id,
-            session_policy::user_claim(&account),
+            session_policy::user_claim(&account, &role_ids),
             timestamp,
         )
         .map_err(|e| {

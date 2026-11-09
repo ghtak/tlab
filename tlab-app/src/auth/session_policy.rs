@@ -7,8 +7,11 @@ pub fn allowed(account: &Account) -> bool {
     )
 }
 
-pub fn user_claim(account: &Account) -> serde_json::Map<String, serde_json::Value> {
-    serde_json::json!({"nickname": account.nickname, "status": account.status})
+pub(crate) fn user_claim(
+    account: &Account,
+    role_ids: &crate::rbac::RoleIds,
+) -> serde_json::Map<String, serde_json::Value> {
+    serde_json::json!({"nickname": account.nickname, "status": account.status, "role_ids": role_ids})
         .as_object()
         .expect("object literal")
         .clone()

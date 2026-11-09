@@ -3,6 +3,12 @@ mod auth;
 mod http;
 mod migrations;
 mod options;
+#[allow(
+    dead_code,
+    unused_imports,
+    reason = "RBAC contracts are connected incrementally"
+)]
+mod rbac;
 
 use std::path::PathBuf;
 

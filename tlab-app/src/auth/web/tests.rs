@@ -104,6 +104,60 @@ fn access(container: &Container, sub: &str, sid: uuid::Uuid, now: u64) -> Access
 
 #[tokio::test]
 #[ignore = "requires isolated PostgreSQL schema"]
+async fn automatic_refresh_uses_roles_and_preserves_cookies_on_lookup_failure() {
+    isolated(|database| async move {
+        let (id, secret, _) = session_setup(&database).await;
+        let mut conn = database.conn().await.unwrap();
+        let role: i64 = sqlx::query_scalar(
+            "INSERT INTO tlab_rbac_role (name, description) VALUES ('web', '') RETURNING id",
+        )
+        .fetch_one(conn.context().backend())
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO tlab_rbac_account_role (account_id, role_id) VALUES ($1, $2)")
+            .bind(id)
+            .bind(role)
+            .execute(conn.context().backend())
+            .await
+            .unwrap();
+        drop(conn);
+        let container = container(database).await;
+        let app = app(container.clone());
+        let cookie = format!("{REFRESH}={}", secret.expose_secret());
+        let response = app
+            .clone()
+            .oneshot(request("GET", "/web/auth/me", &cookie))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let access = set_cookies(&response)
+            .into_iter()
+            .find(|c| c.name() == ACCESS)
+            .unwrap();
+        let claims = container
+            .access_verifier
+            .verify(access.value(), now_seconds())
+            .unwrap();
+        assert_eq!(claims.user["role_ids"], json!([role]));
+        let mut conn = container.database.conn().await.unwrap();
+        sqlx::query("ALTER TABLE tlab_rbac_account_role RENAME TO unavailable_roles")
+            .execute(conn.context().backend())
+            .await
+            .unwrap();
+        drop(conn);
+        let response = app
+            .oneshot(request("GET", "/web/auth/me", &cookie))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_private(&response);
+        assert!(set_cookies(&response).is_empty());
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL schema"]
 async fn valid_cookie_access_and_public_routes_never_acquire_database() {
     isolated(|database| async move {
         let container = container(database).await;
