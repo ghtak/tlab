@@ -7,4 +7,4 @@
 - **다음 작업:** plan의 **06 계정 역할 부여·회수와 초기 관리자**. 상세 범위와 계약은 plan 참조.
 - **진행 방식:** 작업별 새 herdr 오른쪽 pane에서 구현·필요한 검증·자체 점검 후 plan 하단에 결과를 남긴다. 후속 단계는 요청 범위에 맞춰 진행한다.
 - **최근 기준:** 의미 구분용 타입 유지·생성 검증 없음, 임의 개수/크기 상한 없음, `#[async_trait]` resolver. 앱 usecase 결과는 공통 `AppResult`를 사용하고 불필요한 검증·테스트와 오류 추상화를 추가하지 않는다.
-- **검증 상태:** 05의 검증 범위와 결과는 plan 하단 참조. 기존 `app::tests::jwt_configuration_fails_before_connecting_to_database` 실패는 미해결이며 전체 workspace 통과 상태가 아니다. (확인: plan 기록)
+- **검증 상태:** 05의 검증 범위와 결과는 plan 하단 참조.
