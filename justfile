@@ -1,6 +1,7 @@
 import 'just/db.just'
 import 'just/app.just'
 import 'just/http.just'
+import 'just/test.just'
 
 [windows]
 set shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
