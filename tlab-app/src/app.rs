@@ -240,22 +240,59 @@ mod tests {
         }
     }
 
+    fn config_for_jwt_startup_test(jwt: JwtConfig) -> Config {
+        let mut config: Config = serde_json::from_value(serde_json::json!({
+            "tracing": {},
+            "server": {
+                "http": {"bind": "127.0.0.1:0"},
+                "https": {"bind": "127.0.0.1:0", "tls": {
+                    "certificate_chain": "unused-chain.pem", "private_key": "unused-key.pem"
+                }}
+            },
+            "passwd_hasher": {},
+            "database": {"url": "", "max_connections": 5}
+        }))
+        .unwrap();
+        config.auth.jwt = jwt;
+        config
+    }
+
     #[tokio::test]
-    async fn jwt_configuration_fails_before_connecting_to_database() {
-        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("config/app.toml");
-        let config: Config = tlab::config::load(path, "TLAB_JWT_SETTINGS_TEST").unwrap();
+    async fn missing_jwt_keys_with_generation_disabled_fail_before_database() {
         let dir = tempfile::tempdir().unwrap();
-        let mut invalid = config.clone();
-        invalid.auth.jwt.private_key = dir.path().join("missing-private");
-        invalid.auth.jwt.public_key = dir.path().join("missing-public");
-        assert!(Container::new(invalid.clone()).await.is_err());
-        invalid.auth.jwt.generate_if_missing = true;
-        invalid.auth.jwt.issuer.clear();
-        assert!(Container::new(invalid.clone()).await.is_err());
-        assert!(!invalid.auth.jwt.private_key.exists());
-        invalid.auth.jwt.issuer = "issuer".into();
-        invalid.auth.jwt.audience.clear();
-        assert!(Container::new(invalid).await.is_err());
+        let jwt = JwtConfig {
+            private_key: dir.path().join("private.pem"),
+            public_key: dir.path().join("public.pem"),
+            generate_if_missing: false,
+            issuer: "issuer".into(),
+            audience: "audience".into(),
+        };
+        let result = Container::new(config_for_jwt_startup_test(jwt.clone())).await;
+        assert!(
+            matches!(result, Err(Error::Internal(ref error)) if error.to_string().contains("failed to prepare Ed25519 files"))
+        );
+        assert!(!jwt.private_key.exists());
+        assert!(!jwt.public_key.exists());
+    }
+
+    #[tokio::test]
+    async fn empty_jwt_issuer_or_audience_fails_before_key_generation_and_database() {
+        for (issuer, audience) in [("", "audience"), ("issuer", "")] {
+            let dir = tempfile::tempdir().unwrap();
+            let jwt = JwtConfig {
+                private_key: dir.path().join("private.pem"),
+                public_key: dir.path().join("public.pem"),
+                generate_if_missing: true,
+                issuer: issuer.into(),
+                audience: audience.into(),
+            };
+            let result = Container::new(config_for_jwt_startup_test(jwt.clone())).await;
+            assert!(
+                matches!(result, Err(Error::InvalidInput(ref message)) if message == "auth.jwt issuer and audience are required")
+            );
+            assert!(!jwt.private_key.exists());
+            assert!(!jwt.public_key.exists());
+        }
     }
 
     #[test]
