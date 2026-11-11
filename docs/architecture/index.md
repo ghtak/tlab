@@ -20,7 +20,7 @@
 | --- | --- |
 | [`app::Config`](../../tlab-app/src/app.rs) | 앱이 사용하는 설정 타입을 정의하고 공통 라이브러리의 설정 타입을 조합한다. |
 | `app::Container` | 앱 설정과 구성요소 인스턴스를 소유한다. 생성자에서 앱 수준의 설정 조합을 검증하고 구성요소를 생성한다. |
-| [`main`](../../tlab-app/src/main.rs) | 옵션과 설정을 읽고 tracing을 초기화한 뒤 마이그레이션·초기 관리자 CLI·서버 실행을 선택한다. |
+| [`main`](../../tlab-app/src/main.rs) | 옵션과 설정을 읽고 초기 관리자 CLI를 먼저 분기한다. 나머지 경로는 tracing 초기화 후 마이그레이션·서버 실행을 선택한다. |
 | [`http`](../../tlab-app/src/http.rs) | Router를 조립하고 두 서버의 실행·종료를 연결한다. |
 | [`app::response`](../../tlab-app/src/app/response.rs) | 정상 JSON·공통 에러 본문·JSON 입력 실패 응답을 생성한다. AppError의 IntoResponse에서 HTTP 상태 변환과 진단 로깅을 수행하며, 응답에는 code·message만 공개한다. |
 | [`app::error`](../../tlab-app/src/app/error.rs) | 공통 AppError { code: AppErrorCode, message, stage, cause }를 제공한다. 각 usecase는 실패 코드·공개 메시지·진단 맥락을 결정한다. |
