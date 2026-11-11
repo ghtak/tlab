@@ -1,7 +1,7 @@
-use super::token::{AccessClaims, AccessVerifier};
+use super::token::{AccessClaims, AccessVerifier, Error as TokenError};
 use crate::app::response;
 use axum::{
-    extract::{FromRef, FromRequestParts},
+    extract::{FromRef, FromRequestParts, OptionalFromRequestParts},
     http::{
         HeaderValue, StatusCode,
         header::{AUTHORIZATION, WWW_AUTHENTICATE},
@@ -19,40 +19,75 @@ where
     type Rejection = Response;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        match <Self as OptionalFromRequestParts<S>>::from_request_parts(parts, state).await {
+            Ok(Some(claims)) => Ok(claims),
+            Ok(None) => {
+                let mut response = response::error(
+                    StatusCode::UNAUTHORIZED,
+                    "INVALID_ACCESS_TOKEN",
+                    "authentication required",
+                );
+                response
+                    .headers_mut()
+                    .insert(WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
+                Err(response)
+            }
+            Err(response) => Err(response),
+        }
+    }
+}
+
+impl<S> OptionalFromRequestParts<S> for AccessClaims
+where
+    S: Send + Sync,
+    AccessVerifier: FromRef<S>,
+{
+    type Rejection = Response;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &S,
+    ) -> Result<Option<Self>, Self::Rejection> {
         if let Some(verified) = parts.extensions.get::<super::web::VerifiedWebClaims>() {
-            return Ok(verified.claims().clone());
+            return Ok(Some(verified.claims().clone()));
         }
-        let reject = || {
-            let mut response = response::error(
-                StatusCode::UNAUTHORIZED,
-                "INVALID_ACCESS_TOKEN",
-                "authentication required",
-            );
-            response
-                .headers_mut()
-                .insert(WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
-            response
+        let Some(token) = bearer_token(parts) else {
+            return Ok(None);
         };
-        let mut headers = parts.headers.get_all(AUTHORIZATION).iter();
-        let value = headers.next().ok_or_else(reject)?;
-        if headers.next().is_some() {
-            return Err(reject());
-        }
-        let value = value.to_str().map_err(|_| reject())?;
-        let (scheme, token) = value.split_once(' ').ok_or_else(reject)?;
-        if !scheme.eq_ignore_ascii_case("Bearer")
-            || token.is_empty()
-            || token.bytes().any(|b| b.is_ascii_whitespace() || b == b',')
-        {
-            return Err(reject());
-        }
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(|_| reject())?
+            .map_err(|_| response::internal_error("authentication clock failed"))?
             .as_secs();
-        AccessVerifier::from_ref(state)
-            .verify(token, now)
-            .map_err(|_| reject())
+        verified_claims(AccessVerifier::from_ref(state).verify(token, now))
+            .map_err(|_| response::internal_error("access verification failed"))
+    }
+}
+
+fn bearer_token(parts: &Parts) -> Option<&str> {
+    let mut headers = parts.headers.get_all(AUTHORIZATION).iter();
+    let value = headers.next()?;
+    if headers.next().is_some() {
+        return None;
+    }
+    let (scheme, token) = value.to_str().ok()?.split_once(' ')?;
+    (scheme.eq_ignore_ascii_case("Bearer")
+        && !token.is_empty()
+        && !token.bytes().any(|b| b.is_ascii_whitespace() || b == b','))
+    .then_some(token)
+}
+
+fn verified_claims(
+    result: Result<AccessClaims, TokenError>,
+) -> Result<Option<AccessClaims>, TokenError> {
+    match result {
+        Ok(claims) => Ok(Some(claims)),
+        Err(TokenError::InvalidAccess | TokenError::ExpiredAccess) => Ok(None),
+        Err(
+            error @ (TokenError::InvalidConfiguration
+            | TokenError::InvalidInput
+            | TokenError::SigningFailed
+            | TokenError::RandomFailed),
+        ) => Err(error),
     }
 }
 
@@ -65,6 +100,77 @@ mod tests {
 
     async fn protected(claims: AccessClaims, Json(body): Json<Value>) -> Json<Value> {
         Json(json!({"sub": claims.sub, "body": body}))
+    }
+
+    async fn optional(claims: Option<AccessClaims>) -> Json<Value> {
+        Json(json!({"sub": claims.map(|claims| claims.sub)}))
+    }
+
+    #[test]
+    fn verification_errors_preserve_internal_failures() {
+        for error in [TokenError::InvalidAccess, TokenError::ExpiredAccess] {
+            assert!(matches!(verified_claims(Err(error)), Ok(None)));
+        }
+        for error in [
+            TokenError::InvalidConfiguration,
+            TokenError::InvalidInput,
+            TokenError::SigningFailed,
+            TokenError::RandomFailed,
+        ] {
+            let expected = std::mem::discriminant(&error);
+            let Err(error) = verified_claims(Err(error)) else {
+                panic!("internal verification failure must remain an error");
+            };
+            assert_eq!(std::mem::discriminant(&error), expected);
+        }
+    }
+
+    #[tokio::test]
+    async fn optional_authentication_returns_none_without_a_valid_access_token() {
+        let (issuer, verifier) = crate::auth::test_support::token_keys();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let token = issuer
+            .issue("123", uuid::Uuid::new_v4(), Default::default(), now)
+            .unwrap();
+        let expired = issuer
+            .issue("123", uuid::Uuid::new_v4(), Default::default(), now - 600)
+            .unwrap();
+        let router = Router::new()
+            .route("/", post(optional))
+            .with_state(verifier);
+        for (auth, expected) in [
+            (None, json!({"sub": null})),
+            (
+                Some(format!("Bearer {}", token.expose_secret())),
+                json!({"sub": "123"}),
+            ),
+            (Some("Bearer invalid".into()), json!({"sub": null})),
+            (Some("Basic abc".into()), json!({"sub": null})),
+            (Some(String::new()), json!({"sub": null})),
+            (Some("Bearer ".into()), json!({"sub": null})),
+            (
+                Some(format!("Bearer {}", expired.expose_secret())),
+                json!({"sub": null}),
+            ),
+        ] {
+            let mut request = Request::post("/");
+            if let Some(auth) = auth {
+                request = request.header(AUTHORIZATION, auth);
+            }
+            let response = router
+                .clone()
+                .oneshot(request.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = axum::body::to_bytes(response.into_body(), 4096)
+                .await
+                .unwrap();
+            assert_eq!(serde_json::from_slice::<Value>(&body).unwrap(), expected);
+        }
     }
 
     #[tokio::test]
