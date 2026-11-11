@@ -38,3 +38,5 @@ rustc-ice-*.txt
 /tlab-app-ui/*.tsbuildinfo
 
 **/node_modules
+
+temp.http
