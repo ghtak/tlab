@@ -1,5 +1,6 @@
-//! Step-02/03 executable boundary: compile the actual RBAC and token sources without
-//! editing step-07's binary root. These aliases exactly match app::db.
+//! Step-02..06 executable boundary: compile actual feature sources with test-only
+//! module assembly until step 07 registers the slices and auth facade.
+//! These aliases exactly match app::db; storage and policy code are not copied.
 #[path = "../src/app/error.rs"]
 #[allow(dead_code)]
 mod app_error;
@@ -16,13 +17,30 @@ mod auth_entity;
 #[allow(dead_code)]
 mod auth_session_policy;
 use auth_entity as entity;
+#[path = "../src/auth/slice/create_local_user/usecase.rs"]
+mod auth_create_local_user;
+#[path = "../src/auth/repository/identity.rs"]
+#[allow(dead_code)]
+mod auth_identity;
+#[path = "../src/auth/local_account.rs"]
+mod auth_local_account;
+#[path = "../src/auth/passwd_policy.rs"]
+mod auth_passwd_policy;
 #[path = "../src/auth/token.rs"]
 mod token;
 mod auth {
-    pub(crate) use crate::auth_account::lock_by_id as lock_account;
+    pub(crate) use crate::auth_account::{find_by_id as find_account, lock_by_id as lock_account};
     pub(crate) use crate::auth_entity as entity;
+    pub(crate) use crate::auth_local_account::{
+        LocalAccountInput, hash_local_account, insert_prepared_local_account, prepare_local_account,
+    };
+    pub(crate) use crate::auth_passwd_policy as passwd_policy;
     pub(crate) use crate::auth_session_policy::allowed as account_allowed;
     pub(crate) use crate::token;
+    pub(crate) mod repository {
+        pub(crate) use crate::auth_account as account;
+        pub(crate) use crate::auth_identity as identity;
+    }
 }
 #[path = "rbac/authorization.rs"]
 mod authorization;
@@ -36,6 +54,7 @@ mod app {
     pub mod db {
         pub type Database = tlab::sqlxdb::Database<sqlx::Postgres>;
         pub type Context<'a> = tlab::sqlxdb::Context<'a, sqlx::Postgres>;
+        pub type QueryBuilder = sqlx::QueryBuilder<sqlx::Postgres>;
     }
 }
 #[allow(
@@ -43,7 +62,7 @@ mod app {
     unused_imports,
     reason = "Public contracts for later RBAC consumers are not all used by this storage harness"
 )]
-#[path = "../src/rbac/mod.rs"]
+#[path = "rbac/step06.rs"]
 mod rbac;
 
 use app::db::Database;
@@ -602,3 +621,6 @@ async fn management_rechecks_delegation_versions_and_atomicity() {
     })
     .await;
 }
+
+#[path = "rbac/accounts06.rs"]
+mod accounts06;

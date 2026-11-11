@@ -1,5 +1,5 @@
 use crate::{
-    app::db::Context,
+    app::db::{Context, QueryBuilder},
     rbac::{NewRolePermission, PermissionCode, PermissionSet, RoleId, RoleIds},
 };
 use tlab::Result;
@@ -29,6 +29,24 @@ pub(crate) async fn resolve_in_context(
 pub(crate) async fn insert(ctx: &mut Context<'_>, value: &NewRolePermission) -> Result<bool> {
     Ok(sqlx::query("INSERT INTO tlab_rbac_role_permission (role_id,permission_code) VALUES ($1,$2) ON CONFLICT (role_id,permission_code) DO NOTHING")
         .bind(value.role_id.get()).bind(value.permission_code.as_str()).execute(ctx.backend()).await?.rows_affected() == 1)
+}
+pub(crate) async fn insert_many(
+    ctx: &mut Context<'_>,
+    values: &[NewRolePermission],
+) -> Result<u64> {
+    let mut inserted = 0;
+    // PostgreSQL supports u16::MAX bind parameters; each row uses two.
+    for batch in values.chunks(usize::from(u16::MAX) / 2) {
+        let mut query =
+            QueryBuilder::new("INSERT INTO tlab_rbac_role_permission (role_id, permission_code) ");
+        query.push_values(batch, |mut row, value| {
+            row.push_bind(value.role_id.get())
+                .push_bind(value.permission_code.as_str());
+        });
+        query.push(" ON CONFLICT (role_id, permission_code) DO NOTHING");
+        inserted += query.build().execute(ctx.backend()).await?.rows_affected();
+    }
+    Ok(inserted)
 }
 pub(crate) async fn delete(
     ctx: &mut Context<'_>,

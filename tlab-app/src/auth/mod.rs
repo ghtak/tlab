@@ -1,5 +1,6 @@
 pub mod entity;
 mod extractor;
+mod local_account;
 pub mod passwd_policy;
 mod repository;
 mod route;
@@ -10,6 +11,9 @@ mod test_support;
 pub mod token;
 pub(crate) mod web;
 
+pub(crate) use local_account::{
+    LocalAccountInput, hash_local_account, insert_prepared_local_account, prepare_local_account,
+};
 pub(crate) use repository::account::lock_by_id as lock_account;
 pub use route::router;
 pub(crate) use session_policy::allowed as account_allowed;

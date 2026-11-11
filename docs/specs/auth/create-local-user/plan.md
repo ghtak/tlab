@@ -11,6 +11,7 @@ status: accepted
 | --- | --- | --- |
 | realizes | [계정 기능 구상](../account.md) | 계정과 identity 분리, 로컬 가입 |
 | follows | [PLN-PASSWORD-HASH](../../password/hash/plan.md) | 기존 Argon2id 해셔의 생성·저장 계약 |
+| 참고 | [PLN-RBAC-MANAGE-ACCESS](../../rbac/manage-access/plan.md#rbac-06-current) | 06의 공용 준비·저장과 bootstrap 조합, 07 공개 조립 인계 |
 
 ## 목적과 범위
 
@@ -25,6 +26,12 @@ status: accepted
 - [`0001 SQL`](../../../../tlab-app/migrations/0001_create_tlab_account.sql)은 숫자 ID, 계정 상태, identity 우선순위와 LOCAL 이메일의 `lower(email)` UNIQUE 인덱스를 제공한다. provider 목록과 자격 정보 조합은 DB에서 제한하지 않는다. 이 작업에 스키마 변경은 필요 없다. (확인)
 - [`HTTP 조립`](../../../../tlab-app/src/http.rs)은 `/health`, `/db_status`와 정적 파일을 연결한다. auth slice와 업무 오류의 HTTP 변환은 아직 없다. [앱 개발 구조](../../../architecture/app-structure.md)에 따라 시나리오 가까이에 배치한다. (확인: 소스 / 추론: 배치)
 
+## 현재 구현과 조립 상태
+
+RBAC 06에서 입력 준비·해싱·저장을 `auth/local_account.rs`의 공용 작업으로 추출했다. 일반 가입과 초기 관리자 생성이 같은 작업을 사용하며 각 usecase가 연결·트랜잭션과 완료 조건을 조합한다. 아래는 현재 책임 배치이며 과거 구현·검증 기록은 하단에 보존한다. (확인)
+
+리뷰 수정에서 `auth/mod.rs`의 `local_account` 선언과 입력·준비·해싱·저장 함수 재노출을 연결했다. 원본 workspace fmt·Clippy 및 인증·가입 테스트 64개가 통과했다. RBAC의 계정 조회 재노출·slice 선언·HTTP·CLI 통합은 07에 남는다. 과거 임시 조립 사본의 검증 기록과 이번 원본 검증을 구분한다. (확인)
+
 ## 책임과 배치
 
 HTTP 처리·usecase·테스트를 사용자 생성 시나리오 안에 모으고, 저장소 API와 entity·비밀번호 정책은 auth 공용으로 둔다. 역할별 전역 route/service 디렉터리 대신 시나리오가 변경의 중심이 되는 VSA 배치다. 저장소의 API 축은 사용자의 후속 지시에 따라 account·identity CRUD로 유지한다. (확인: 요청·현재 구현)
@@ -37,8 +44,9 @@ auth/
 │   └── create_local_user/
 │       ├── mod.rs
 │       ├── route.rs             # HTTP 입력·응답, 향후 RBAC 연결 위치
-│       ├── usecase.rs           # 로컬 사용자 추가·트랜잭션, 하단 인라인 해싱 테스트
+│       ├── usecase.rs           # 공용 준비·해싱·저장 호출, 연결·트랜잭션 완료
 │       └── tests.rs             # HTTP·usecase·실제 DB 통합 계약
+├── local_account.rs             # 준비·해싱·저장 공용 작업, 인라인 해싱 테스트
 ├── entity.rs                    # 계정·identity entity와 AccountStatus·Provider enum
 ├── repository/
 │   ├── account.rs               # 계정 저장소 CRUD
@@ -50,7 +58,8 @@ auth/
 | --- | --- |
 | slice의 route | JSON 요청 해석·usecase 호출·업무 오류의 HTTP 상태·코드 선택. 향후 인가 검사 연결 |
 | app/response.rs | 정상 JSON·공통 에러 본문·JSON 추출 실패 응답 생성 |
-| slice의 usecase | 입력·비밀번호 정책 검증, Argon2id 조합, REGISTERED·LOCAL·priority 0 지정, 트랜잭션과 중복 이메일의 업무 의미 해석 |
+| slice의 usecase | DB 연결 획득·반환, 공용 준비·해싱 호출, 저장 tx 시작·commit과 생성 결과 반환 |
+| auth/local_account.rs | Context 기반 정리·검증·이메일 중복 사전 조회, 연결 없는 해싱·슬롯 관리, REGISTERED·LOCAL·priority 0 지정과 호출자 Context의 account/identity 저장 |
 | 공용 entity | 저장할 값과 저장된 행의 타입. 생성용 New 타입은 DB가 채울 ID·생성/변경 시각을 제외 |
 | 공용 repository | entity를 받아 bind·SQL 실행·행 매핑. 생성된 entity를 반환하고 DB 오류를 그대로 상위에 전달 |
 | app::Container | 비밀번호 정책·Argon2id 인스턴스·DB·공유 해싱 슬롯의 생성과 소유 |
@@ -58,9 +67,9 @@ auth/
 | http.rs | auth 등 feature Router를 기존 HTTP·HTTPS 서버에 연결 |
 | tlab::password | Argon2id 연산·salt·PHC 형식. 앱의 비밀번호 정책·동시성·가입 절차는 소유하지 않음 |
 
-repository에는 기능별 `create_local_user`나 `insert_local_identity`를 두지 않는다. 현재 필요한 API는 `account::insert(ctx, &NewAccount) -> Account`, `identity::insert(ctx, &NewIdentity) -> Identity`다. 개별 필드 인자를 호출마다 나열하지 않으며 SQL 필드 매핑은 저장소별 한 곳에서 관리한다. 트랜잭션 시작·commit과 제공자별 값의 선택은 usecase가 맡는다. 아직 사용하지 않는 조회·수정·삭제 연산은 필요해질 때 같은 entity 기준으로 추가한다. (확인)
+repository에는 기능별 `create_local_user`나 `insert_local_identity`를 두지 않는다. 현재 필요한 API는 `account::insert(ctx, &NewAccount) -> Account`, `identity::insert(ctx, &NewIdentity) -> Identity`다. 개별 필드 인자를 호출마다 나열하지 않으며 SQL 필드 매핑은 저장소별 한 곳에서 관리한다. 트랜잭션 시작·commit은 usecase가 맡고 LOCAL 계정의 상태·우선순위·제공자 값 선택은 auth 공용 로컬 계정 저장 작업이 맡는다. 아직 사용하지 않는 조회·수정·삭제 연산은 필요해질 때 같은 entity 기준으로 추가한다. (확인)
 
-`sqlx::FromRow` derive로 반환 행을 entity로 매핑하고 TIMESTAMPTZ는 `sqlx::types::time::OffsetDateTime`을 사용한다. query macro의 빌드 시 DB 조회는 사용하지 않는다. `AccountStatus`는 Registered·Active·Withdrawn, `Provider`는 Local·Google·Kakao를 지원하는 Rust enum이다. SQLx Type을 통해 DB의 TEXT 대문자 코드와 매핑한다. DB에 새로운 제공자 값을 저장하는 것은 가능하지만 현재 Rust enum이 지원하지 않는 값을 디코딩하면 오류를 반환한다. 지원 확대 시 Rust variant와 처리 코드를 추가한다. 생성 응답도 AccountStatus를 사용하며 JSON은 기존 REGISTERED 형식을 유지한다. (확인)
+`sqlx::FromRow` derive로 반환 행을 entity로 매핑하고 TIMESTAMPTZ는 `chrono::DateTime<Utc>`를 사용한다. query macro의 빌드 시 DB 조회는 사용하지 않는다. `AccountStatus`는 Registered·Active·Withdrawn, `Provider`는 Local·Google·Kakao를 지원하는 Rust enum이다. SQLx Type을 통해 DB의 TEXT 대문자 코드와 매핑한다. DB에 새로운 제공자 값을 저장하는 것은 가능하지만 현재 Rust enum이 지원하지 않는 값을 디코딩하면 오류를 반환한다. 지원 확대 시 Rust variant와 처리 코드를 추가한다. 생성 응답도 AccountStatus를 사용하며 JSON은 기존 REGISTERED 형식을 유지한다. (확인)
 
 entity는 HTTP 응답과 분리하며 identity와 생성 입력에는 Debug·Serialize를 적용하지 않는다. 전체 저장 행을 표현하는 Account·Identity에 한해서 현재 slice가 읽지 않는 필드의 dead_code 경고를 허용한다. (확인)
 
@@ -88,12 +97,12 @@ pub trait PasswordPolicy: Send + Sync {
 }
 
 pub struct PasswordPolicyViolation {
-    pub code: &'static str,
+    pub code: AppErrorCode,
     pub message: &'static str,
 }
 ```
 
-위 인터페이스를 구현했다. 위반 결과에는 비밀번호 원문을 포함하지 않는다. usecase는 정책을 해싱 슬롯 획득 전에 호출하고, 실패하면 password 필드의 InvalidInput으로 반환한다. HTTP 외 호출도 같은 정책을 적용한다. (추론)
+위 인터페이스를 구현했다. 위반 결과에는 비밀번호 원문을 포함하지 않는다. 공용 준비 작업은 정책을 해싱 슬롯 획득 전에 호출하고, 실패하면 해당 코드·메시지의 공통 AppError를 반환한다. HTTP 외 호출도 같은 정책을 적용한다. (추론)
 
 초기 구현체는 `NonEmptyPasswordPolicy`로 빈 문자열만 거부한다. 길이·문자 구성·금지 비밀번호 같은 실제 제약은 정책 구현체를 교체하거나 그 안에서 조합하도록 하며, 이번에 별도 규칙 조합 프레임워크는 도입하지 않는다. 비밀번호 재설정 등 후속 시나리오도 동일한 정책이 필요하면 이 trait을 사용한다. 구체 강도 정책은 후속으로 이 구현체를 교체해 적용한다. (확인: 현재 기본값 / 추론: 확장 경계)
 
@@ -132,11 +141,12 @@ HTTP로 노출하고, 향후 RBAC 설계에서 제한된 사용자에게만 이 
 
 ```mermaid
 flowchart TD
-    I[닉네임·이메일·비밀번호] --> V[입력 정리·검증]
-    V --> P[PasswordPolicy 검증]
-    P --> H[동시성 슬롯 획득 후 blocking 작업에서 Argon2id 해싱]
+    I[닉네임·이메일·비밀번호] --> D[usecase: DB 연결 획득]
+    D --> V[prepare_local_account: 정리·정책 검증·이메일 사전 조회]
+    V --> F[usecase: 연결 반환]
+    F --> H[hash_local_account: 슬롯 획득·blocking 해싱]
     H --> T[DB 트랜잭션 시작]
-    T --> A[REGISTERED 계정 INSERT · ID 반환]
+    T --> A[insert_prepared_local_account: REGISTERED 계정 INSERT]
     A --> M[LOCAL identity INSERT · priority 0 · PHC 저장]
     M --> C[COMMIT]
     C --> R[계정 ID·상태 반환]
@@ -144,11 +154,11 @@ flowchart TD
     M -->|실패·이메일 중복| X
 ```
 
-1. usecase에서 입력을 정리하고 비밀번호 정책을 포함해 검증한다. 오류라면 해싱·DB 변경 전에 종료한다.
-2. 앱이 소유한 해싱 슬롯을 획득한다. 남은 슬롯이 없으면 대기열을 추가하지 않고 Busy를 반환한다.
-3. `tokio::task::spawn_blocking`에서 기존 `PasswordHasher::hash`를 호출한다. PHC 생성이 성공한 후에만 DB 트랜잭션을 연다.
-4. 같은 트랜잭션에서 계정과 identity를 생성한다. 계정 ID는 `RETURNING id`로 받는다.
-5. identity까지 성공한 뒤 commit한다. commit 성공 전에는 생성 성공을 반환하지 않는다.
+1. usecase가 DB 연결을 얻고 `prepare_local_account(ctx, policy, input)`을 호출한다. 정리·검증·이메일 중복 사전 조회를 caller Context에서 수행하고 정리된 `LocalAccountInput`을 반환한다. 공용 작업은 연결·tx를 열지 않는다.
+2. usecase가 준비에 사용한 연결을 반환한 뒤 `hash_local_account(input, hasher, slots)`를 호출한다. 슬롯이 없으면 Busy를 반환하며 blocking 작업에서 원문을 그대로 해싱한다.
+3. 해싱 결과인 `PreparedLocalAccount`는 비공개 필드에 닉네임·이메일·해시를 보관하고 Debug/Serialize를 제공하지 않는다. 해싱 중 DB 연결·tx는 없다.
+4. usecase가 tx를 열고 `insert_prepared_local_account(ctx, prepared)`를 호출한다. 같은 Context에 REGISTERED 계정과 LOCAL identity를 저장하며 저장 작업은 commit하지 않는다.
+5. usecase가 commit한 뒤 `CreatedLocalUser { account_id, status }`를 반환한다. bootstrap은 같은 준비·해싱·저장을 사용하되 계정·identity와 RBAC 역할·연결을 하나의 tx로 조합한다.
 
 위 순서로 구현했다. 비밀번호와 생성 해시를 이벤트·로그·응답에 넣지 않고, DB에는 PHC 문자열만 저장한다. 비밀번호 확인용 재입력은 UI 책임으로 보고 저장하지 않는다. (추론)
 
@@ -166,7 +176,7 @@ permit은 blocking closure가 끝날 때 해제한다. HTTP 요청이 취소되�
 
 ### 저장 계약
 
-usecase는 `NewAccount { nickname, status: REGISTERED, withdrawn_at: None }`와 `NewIdentity { account_id, provider: LOCAL, provider_subject: None, email, email_verified_at: None, password_hash: Some(PHC), priority: 0 }`를 구성한다. repository는 이를 받아 bind 처리하고 `INSERT ... RETURNING *`를 통해 Account·Identity로 매핑한다. 비밀번호 해시를 포함한 저장 entity를 HTTP 응답에 직접 직렬화하지 않는다. (확인)
+auth 공용 `insert_prepared_local_account`는 `NewAccount { nickname, status: REGISTERED, withdrawn_at: None }`와 `NewIdentity { account_id, provider: LOCAL, provider_subject: None, email, email_verified_at: None, password_hash: Some(PHC), priority: 0 }`를 구성한다. repository는 이를 받아 bind 처리하고 `INSERT ... RETURNING *`를 통해 Account·Identity로 매핑한다. 비밀번호 해시를 포함한 저장 entity를 HTTP 응답에 직접 직렬화하지 않는다. (확인)
 
 해싱 전에 LOCAL 이메일을 대소문자 구분 없이 조회하여 중복을 거부한다. 사전 조회가 보장하지 못하는 동시 가입은 `tlab_account_identity_local_email_key`의 UNIQUE 제약으로 차단한다. 저장 중 충돌은 InternalError로 전달하며 사용자가 재시도하면 사전 조회에서 EmailAlreadyExists를 반환한다. identity 저장 실패 시 트랜잭션 종료로 먼저 생성한 계정도 rollback된다. (확인: 사용자 합의와 구현)
 
@@ -344,3 +354,14 @@ provider·status의 String 사용은 리뷰 중 논의에 따라 Rust enum으로
 - 점수: 기능 4/4, 가독성과 구조 3/4, 안정성 4/4, 보안 4/4, 성능 4/4, 테스트 용이성 4/4. 총점 96.25/100, 판정 통과. 응답·진단 분리, 거래 실패·경합 재시도·취소 후 용량 유지, 인증·쿠키 회귀를 근거로 평가했으며 실사용 부하 측정은 수행하지 않았다. (추론)
 - 리스크 R2: slice별 실패 타입과 HTTP 변환 책임을 앱 공통 경계로 옮기는 아키텍처 변경이다. 스키마·저장 데이터 계약·외부 발송은 변경하지 않아 코드 복원으로 이전 오류 처리에 돌아갈 수 있다고 판단한다. 실제 배포 롤백은 수행하지 않았다. code·message만 받는 클라이언트와 HTTP 상태의 호환성은 합의된 변경 범위에서 확인했다. (추론)
 - 범위: 전체 로깅은 IntoResponse를 거치는 AppError에 적용한다. JSON 파싱·CSRF·Bearer 등 response::error 직접 생성 경로와 정상 처리로 흡수되는 오류는 이 진단 로깅 대상에 포함되지 않는다. 해당 경로도 포함할지는 별도 정책 변경이며 이번 합의 범위의 결함으로 보지 않는다. 운영 로그량·부하·보관 정책은 검증하지 않았다. (확인·추론)
+
+
+### RBAC 06: 로컬 계정 준비·해싱·저장 공용화
+
+- 일반 가입과 bootstrap이 공유하도록 `auth/local_account.rs`에 준비·해싱·저장을 추출했다. 사용자 피드백에 따라 준비는 호출자 Context를 받고, 연결 반환 후 별도 해싱을 수행한다. usecase는 공통 AppResult를 사용하고 연결·저장 tx·commit을 소유한다. 기존 이메일 재시도, 비밀번호 원문 유지, 해싱 슬롯·취소 및 저장 원자성 계약은 유지했다. (확인)
+- 준비의 Context 전환 후 임시 조립 사본에서 기존 인증·가입 64개, 실제 소스 harness의 bootstrap·가입 관련 3개가 통과했다. 이후 batch INSERT·bootstrap advisory lock 제거에 대한 재검증은 [RBAC plan](../../rbac/manage-access/plan.md#rbac-06-current) 기록을 따른다. 실제 관리 HTTP·CLI와 원본 전체 앱 통과를 뜻하지 않는다. (확인)
+- 07은 `auth/mod.rs`에 `local_account`를 선언하고 `LocalAccountInput`, `prepare_local_account`, `hash_local_account`, `insert_prepared_local_account`를 재노출해야 한다. 이번 문서 현행화는 연결표·책임·처리 흐름을 현재 소스와 대조했으며 코드·테스트 실행은 추가하지 않았다. (확인)
+
+### 리뷰 수정: auth 공용 작업 연결
+
+- 사용자 수정·재리뷰 요청으로 `auth/mod.rs`에 공용 작업 선언과 위 네 항목의 crate 범위 재노출을 추가해 E0432를 해결했다. 비밀 입력의 Debug/Serialize 계약과 공용 작업 구현은 변경하지 않았다. 원본 인증·가입 테스트는 DB 테스트를 포함해 64개 통과했다. [RBAC 재리뷰 기록](../../rbac/manage-access/plan.md#rbac-06-rereview)에서 선행 검사·audit·점수·남은 결함을 함께 관리한다. (확인)

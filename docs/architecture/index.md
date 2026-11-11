@@ -51,7 +51,8 @@ flowchart TD
 - [비밀번호 해싱 모듈](../../tlab/src/password.rs): Argon2id·PBKDF2 해시 생성과 PHC 검증을 제공한다. [명세](../specs/password/hash/spec.md)와 [설계](../specs/password/hash/plan.md)를 참조한다.
 - [HTTP 모듈](../../tlab/src/http.rs): 앱이 조립한 Axum Router로 단일 HTTP 또는 HTTPS 리스너를 실행하고 정적 파일 Router 생성과 TLS 재로드를 제공한다. 다중 인스턴스 조정은 앱이 맡는다. [설계](../specs/http/plan.md)와 [검증·리뷰](../specs/http/verification.md)를 참조한다.
 - [앱 구성](../../tlab-app/src/app.rs): 설정을 소유하고 HTTP·HTTPS 설정 검증과 서버 생성을 담당하는 Container를 제공한다. [앱 진입점](../../tlab-app/src/main.rs)은 설정 로딩·tracing 초기화와 실행 경로 선택을, [앱 HTTP 모듈](../../tlab-app/src/http.rs)은 Router 조립과 서버 실행·종료를 맡는다. [앱 HTTP 명세](../specs/http/app/spec.md)를 참조한다. (확인)
-- [로컬 사용자 추가](../../tlab-app/src/auth/slice/create_local_user/usecase.rs): 시나리오 안에 HTTP 처리·usecase·테스트를 모으고, auth 공용 entity와 저장소별 CRUD API를 사용한다. Argon2id·비밀번호 정책·해싱 동시성 자원은 Container가 조립한다. [설계·검증 결과](../specs/auth/create-local-user/plan.md)를 참조한다. 접근 제한은 후속 RBAC 범위다. (확인)
+- [로컬 사용자 추가](../../tlab-app/src/auth/slice/create_local_user/usecase.rs): HTTP·usecase·통합 테스트는 slice가 소유하고, [auth/local_account](../../tlab-app/src/auth/local_account.rs)가 Context 기반 준비·연결 없는 해싱·호출자 tx의 계정/identity 저장을 제공한다. 일반 가입과 bootstrap이 공유하며 Container는 정책·해셔·슬롯을 조립한다. 공용 작업의 auth 선언·재노출은 연결했으며 가입 진입 인가는 RBAC 07에 남는다. [설계·검증 결과](../specs/auth/create-local-user/plan.md) 참조. (확인)
+- [RBAC](../../tlab-app/src/rbac/mod.rs): 역할·퍼미션·계정 부여 저장소, 공용 인가·resolver, JWT 역할 발급 및 관리 slice를 구현했다. 06 후속 기준은 일반 계정 조회·부여/회수에 계정 행 잠금을 사용하지 않고 역할 변경 정책은 역할 잠금과 같은 tx의 권한 재조회로 보호한다. bootstrap은 격리된 단독 실행과 현재 카탈로그 batch 저장을 사용한다. 계정 역할·유효 퍼미션 조회의 미존재 계정은 모두 404 계약을 따르며 06 공개 조립·Router·CLI는 남아 있다. [현재 구현·07 인계](../specs/rbac/manage-access/plan.md#rbac-06-current) 참조. (확인)
 
 ## 개발 가이드
 
