@@ -22,7 +22,7 @@
 - [기능 구상 가이드](agent/feature-exploration/index.md) · [feature-exploration 스킬](../.agents/skills/feature-exploration/SKILL.md): 논의 대상의 기능·할 일·관계를 간략히 정리하고 상세 문서에 연결한다.
 - [요구사항 정의 가이드](agent/requirements-definition/index.md) · [requirements-definition 스킬](../.agents/skills/requirements-definition/SKILL.md): 선택한 기능의 시나리오·정책·예외·검증 조건을 상세화한다.
 - [설계 문서 작성 가이드 초안](agent/create-plan/index.md) · [create-plan 스킬](../.agents/skills/create-plan/SKILL.md)
-- [작은 변경 처리 가이드](agent/small-change/index.md) · [small-change 스킬](../.agents/skills/small-change/SKILL.md)
+- [개발 진행 가이드](agent/development-workflow/index.md) · [개발 진행 스킬](../.agents/skills/development-workflow/SKILL.md)
 - [커밋 가이드](agent/commit/index.md) · [commit 스킬](../.agents/skills/commit/SKILL.md)
 - [코드 리뷰 가이드 초안](agent/code-review/index.md) · [code-review 스킬](../.agents/skills/code-review/SKILL.md)
 - [앱 수준 검증 도구·방법 구성 가이드](agent/create-verification/index.md) · [create-verification 스킬](../.agents/skills/create-verification/SKILL.md)

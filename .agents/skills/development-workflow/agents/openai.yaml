@@ -1,0 +1,5 @@
+interface:
+  display_name: "개발 진행"
+  short_description: "요구사항부터 구현·검증·자체 점검까지 문서와 단계별 승인으로 진행"
+policy:
+  allow_implicit_invocation: false
