@@ -19,3 +19,6 @@ app-bootstrap-admin email="admin@example.com" nickname="admin":
 # UI 개발 서버를 포그라운드로 실행. 종료는 Ctrl+C
 app-run-ui:
     npm --prefix tlab-app-ui run dev
+
+# 이전 웹 개발 명령 호환. 인증 설정은 app.toml에서 관리한다.
+alias app-run-web := app-run

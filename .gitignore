@@ -40,3 +40,6 @@ rustc-ice-*.txt
 **/node_modules
 
 temp.http
+# Browser verification outputs
+/tlab-app-ui/test-results/
+/tlab-app-ui/playwright-report/

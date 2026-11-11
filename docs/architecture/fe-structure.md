@@ -12,16 +12,16 @@
 
 | 기술 | 역할과 배치 | 현재 연결 상태 |
 | --- | --- | --- |
-| React | 컴포넌트와 화면 렌더링. 화면은 feature, 공통 UI는 components에 배치 | 기본 화면과 React 진입점 구성 |
+| React | 컴포넌트와 화면 렌더링. 화면은 feature, 공통 UI는 components에 배치 | 로그인·빈 대시보드와 React 진입점 구성 |
 | TypeScript | 컴포넌트·요청 계약·설정의 타입 검사 | strict 모드와 `@/*` 경로 설정 |
 | Vite | 개발 서버·프로덕션 빌드. React·Router·Tailwind 플러그인과 경로 별칭 조립 | 개발·빌드 설정 구성 |
 | TanStack Router | routes의 파일 기반 경로·진입 조건·화면 연결 | RouterProvider와 파일 생성·자동 코드 분할 플러그인 연결 |
-| TanStack Query | 서버 데이터 조회·변경 상태·캐시·재조회 관리 | QueryClientProvider 구성. 기능별 조회·mutation은 아직 미구현 |
-| ky | `lib/api.ts`의 API 통신과 공통 오류 처리 | 도입 예정. 의존성과 API 연결은 아직 미구현 |
+| TanStack Query | 서버 데이터 조회·변경 상태·캐시·재조회 관리 | QueryClientProvider와 auth 세션 Query·로그인/로그아웃 mutation 연결 |
+| ky | `lib/api.ts`의 API 통신과 공통 오류 처리 | ky 2 기반 공통 HTTP·오류·AbortSignal·인증 실패 통지 연결 |
 | Tailwind CSS | 유틸리티 클래스 기반 스타일과 테마 색상 | Vite 플러그인과 `src/index.css` 구성 |
 | shadcn/ui | 프로젝트가 소유하는 UI 소스를 `components/ui`에서 관리 | `components.json`과 버튼 구성 |
 
-위 현재 상태는 소스·설정을 확인한 결과다. `feature/` 배치와 인증 API 연결은 후속 구현에 적용할 구조이며, 현재 구현된 것으로 간주하지 않는다. (확인)
+위 현재 상태는 소스·설정을 확인한 결과다. `feature/auth/pages/login`, `feature/auth/services`, `feature/dashboard`에 인증과 최소 대시보드를 구현했다. 사용자는 세션 Query 한 곳에서 관리하며 별도 사용자 store를 두지 않는다. (확인)
 
 공통 버튼은 Radix Slot의 `asChild`와 class-variance-authority의 변형 설정을 사용한다. `src/lib/utils.ts`의 `cn`은 clsx와 tailwind-merge로 조건부 클래스와 Tailwind 클래스를 합친다. Lucide는 아이콘 의존성으로 포함되어 있다. 이들은 UI 표현을 위한 도구이며 기능별 상태나 인증 정책을 소유하지 않는다. (확인·제안)
 
@@ -135,3 +135,9 @@ service는 API 통신이나 세션 관리처럼 구체적인 처리 책임을 �
 
 - [웹 UI API와 세션](../specs/auth/web-ui-session/plan.md): 이 배치 기준을 적용하는 인증 기능 설계.
 - [백엔드 앱 개발 구조](app-structure.md): 시나리오 단위의 지역성과 책임 배치. 프런트엔드에는 UI의 역할과 변경 이유에 맞는 경계를 적용한다.
+
+## 인증 구현 연결
+
+`main.tsx`가 QueryClient·ky 클라이언트·auth API·session·Router를 조립한다. `lib/api.ts`는 전달받은 세대·401 통지 계약으로 보호 요청의 오류를 연결하고, 이전 세대의 보호 요청 성공을 취소로 전달한다. 로그인·로그아웃·me는 auth가 오류 의미와 전환을 직접 처리한다. Query와 ky 재시도는 명시적으로 끄며, 사용자 Query는 `['user', sub, ...]` 계약을 따른다. API 타입은 `auth-api.ts`, 세션 계약과 Query 옵션은 `session.ts`, 화면 props는 컴포넌트 옆에 둔다. (확인)
+
+현재 보호 URL은 `/` 하나이므로 로그인 성공 후 `/`로 이동한다. 임의 복귀 URL 입력은 받지 않는다. 추가 보호 경로의 복귀 정책은 그 경로를 도입할 때 정한다. 개발 서버는 localhost:5173과 `/web/v1` proxy를 사용한다. 실제 검증과 운영 미검증 범위는 [인증 기록](../specs/auth/web-ui-session/plan.md)의 최신 구현 기록을 따른다. (확인)

@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && tsc -b",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run src",
+    "test:browser": "playwright test"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.5.0",
@@ -13,12 +15,14 @@
     "@tanstack/react-router": "^1.170.46",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "ky": "^2.2.0",
     "lucide-react": "^1.68.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "@tailwindcss/vite": "^4.3.4",
     "@tanstack/router-plugin": "^1.168.48",
     "@types/node": "^26.6.6",
@@ -27,6 +31,7 @@
     "@vitejs/plugin-react": "^6.2.1",
     "tailwindcss": "^4.3.4",
     "typescript": "^7.0.2",
-    "vite": "^8.3.5"
+    "vite": "^8.3.5",
+    "vitest": "^4.1.12"
   }
 }

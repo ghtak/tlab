@@ -25,11 +25,11 @@ issuer = "tlab"
 audience = "tlab-api"
 
 [auth.web]
-# Exact public origin; no trailing slash. Web unsafe requests require this Origin.
-origin = "https://localhost:8081"
-# Development HTTP only: also set origin to http://localhost:8080.
-# Uses separate tlab_dev_* cookies; production defaults remain Secure/HttpOnly.
-allow_insecure_http = false
+# Local Vite UI origin; no trailing slash. Restart the backend after changes.
+origin = "http://localhost:5173"
+# Local HTTP development uses tlab_dev_* cookies.
+# For deployment, set the public HTTPS origin and disable this option.
+allow_insecure_http = true
 
 [database]
 # Set TLAB_APP_DATABASE__URL in .env or the environment.
