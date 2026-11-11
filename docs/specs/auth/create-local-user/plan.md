@@ -113,7 +113,7 @@ usecase는 공통 `AppError { code: AppErrorCode, message, stage, cause: Option<
 
 ### HTTP 진입점과 접근 제어
 
-`POST /api/v1/accounts/local`은 Bearer 인증, `POST /web/accounts/local`은 기존 쿠키 인증·자동 갱신·Origin/CSRF 계약을 사용한다. 두 진입점은 검증된 claims의 Actor로 현재 역할 퍼미션을 조회하고 `account.create`를 확인한 뒤 같은 가입 usecase를 호출한다. execute 자체는 HTTP와 독립적인 신뢰된 내부 작업이다. (확인)
+`POST /api/v1/accounts/local`은 Bearer 인증, `POST /web/v1/accounts/local`은 기존 쿠키 인증·자동 갱신·Origin/CSRF 계약을 사용한다. 두 진입점은 검증된 claims의 Actor로 현재 역할 퍼미션을 조회하고 `account.create`를 확인한 뒤 같은 가입 usecase를 호출한다. execute 자체는 HTTP와 독립적인 신뢰된 내부 작업이다. (확인)
 
 인증 실패는 401, 권한 없음은 403/RBAC_FORBIDDEN, resolver 장애는 500/INTERNAL_ERROR다. 인가를 통과한 뒤 기존 입력·해싱·저장 계약을 적용한다. 인증 검사와 업무 진입 인가를 일반 JWT 검증기나 저장소로 이동하지 않는다. 실제 앱 검증은 [RBAC 07/08](../../rbac/manage-access/verification.md)에 기록한다. (확인)
 

@@ -128,7 +128,7 @@ Content-Type: application/json
 # AppError 응답 로그: 예상된 거부 INFO, BUSY WARN, INTERNAL_ERROR ERROR.
 
 ### 웹 로그인 — 200, Access·Refresh를 Set-Cookie로 전달
-POST {{webBaseUrl}}/web/auth/local
+POST {{webBaseUrl}}/web/v1/auth/local
 Origin: {{webBaseUrl}}
 Content-Type: application/json
 
@@ -138,17 +138,17 @@ Content-Type: application/json
 }
 
 ### 웹 사용자 조회 — 웹 로그인 후 200
-GET {{webBaseUrl}}/web/auth/me
+GET {{webBaseUrl}}/web/v1/auth/me
 
 ### 웹 로그아웃 — 200, Refresh 폐기와 쿠키 삭제
-POST {{webBaseUrl}}/web/auth/logout
+POST {{webBaseUrl}}/web/v1/auth/logout
 Origin: {{webBaseUrl}}
 
 ### 웹 로그아웃 후 조회 — 401 / INVALID_ACCESS_TOKEN
-GET {{webBaseUrl}}/web/auth/me
+GET {{webBaseUrl}}/web/v1/auth/me
 
 ### 다른 Origin의 웹 로그인 — 403 / CSRF_REJECTED
-POST {{webBaseUrl}}/web/auth/local
+POST {{webBaseUrl}}/web/v1/auth/local
 Origin: https://other.example.com
 Content-Type: application/json
 

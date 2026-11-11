@@ -68,7 +68,8 @@ async fn request(container: Arc<Container>, payload: &str) -> (StatusCode, Value
             chrono::Utc::now().timestamp() as u64,
         )
         .unwrap();
-    let response = crate::auth::router()
+    let response = axum::Router::new()
+        .nest("/api/v1", crate::auth::api_routes())
         .with_state(container)
         .oneshot(
             Request::post("/api/v1/accounts/local")

@@ -476,7 +476,7 @@ async fn production_web_rbac_cookie_csrf_and_automatic_refresh() {
             };
         let response = web_request(
             "POST",
-            "/web/auth/local",
+            "/web/v1/auth/local",
             "",
             Some(&origin),
             json!({"email":"admin@example.test","password":"admin-secret"}),
@@ -513,7 +513,7 @@ async fn production_web_rbac_cookie_csrf_and_automatic_refresh() {
         let login_body = body(response, StatusCode::OK).await;
         assert!(login_body.get("access_token").is_none());
         body(
-            web_request("GET", "/web/rbac/roles", access, None, Value::Null)
+            web_request("GET", "/web/v1/rbac/roles", access, None, Value::Null)
                 .await
                 .unwrap(),
             StatusCode::OK,
@@ -523,7 +523,7 @@ async fn production_web_rbac_cookie_csrf_and_automatic_refresh() {
             let error = body(
                 web_request(
                     "POST",
-                    "/web/accounts/local",
+                    "/web/v1/accounts/local",
                     access,
                     origin,
                     signup("csrf@example.test"),
@@ -538,7 +538,7 @@ async fn production_web_rbac_cookie_csrf_and_automatic_refresh() {
         body(
             web_request(
                 "POST",
-                "/web/accounts/local",
+                "/web/v1/accounts/local",
                 access,
                 Some(&origin),
                 signup("web-created@example.test"),
@@ -550,7 +550,7 @@ async fn production_web_rbac_cookie_csrf_and_automatic_refresh() {
         .await;
         let refreshed = web_request(
             "POST",
-            "/web/accounts/local",
+            "/web/v1/accounts/local",
             refresh,
             Some(&origin),
             signup("auto-refresh@example.test"),
@@ -572,7 +572,7 @@ async fn production_web_rbac_cookie_csrf_and_automatic_refresh() {
             send(
                 &app,
                 "GET",
-                "/web/rbac/roles",
+                "/web/v1/rbac/roles",
                 tokens["access_token"].as_str(),
                 Value::Null,
             )
@@ -580,6 +580,57 @@ async fn production_web_rbac_cookie_csrf_and_automatic_refresh() {
             StatusCode::UNAUTHORIZED,
         )
         .await;
+        // Both transports expose the same business routes and permission decisions.
+        for path in ["/rbac/roles", "/rbac/permissions"] {
+            let api_result = body(
+                send(
+                    &app,
+                    "GET",
+                    &format!("/api/v1{path}"),
+                    tokens["access_token"].as_str(),
+                    Value::Null,
+                )
+                .await,
+                StatusCode::OK,
+            )
+            .await;
+            let web_result = body(
+                web_request("GET", &format!("/web/v1{path}"), access, None, Value::Null)
+                    .await
+                    .unwrap(),
+                StatusCode::OK,
+            )
+            .await;
+            assert_eq!(api_result, web_result);
+        }
+        let member = login(&app, "web-created@example.test", "member-secret").await;
+        let member_access = member["access_token"].as_str().unwrap();
+        let api_denied = body(
+            send(
+                &app,
+                "GET",
+                "/api/v1/rbac/roles",
+                Some(member_access),
+                Value::Null,
+            )
+            .await,
+            StatusCode::FORBIDDEN,
+        )
+        .await;
+        let web_denied = body(
+            web_request(
+                "GET",
+                "/web/v1/rbac/roles",
+                &format!("__Host-tlab_access={member_access}"),
+                None,
+                Value::Null,
+            )
+            .await
+            .unwrap(),
+            StatusCode::FORBIDDEN,
+        )
+        .await;
+        assert_eq!(api_denied, web_denied);
         let mut conn = container.database.conn().await.unwrap();
         let before: i64 = sqlx::query_scalar("SELECT count(*) FROM tlab_account")
             .fetch_one(conn.context().backend())
@@ -592,7 +643,7 @@ async fn production_web_rbac_cookie_csrf_and_automatic_refresh() {
         drop(conn);
         let response = web_request(
             "POST",
-            "/web/accounts/local",
+            "/web/v1/accounts/local",
             refresh,
             Some(&origin),
             signup("must-not-run@example.test"),

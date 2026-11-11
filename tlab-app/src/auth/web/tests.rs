@@ -10,6 +10,7 @@ use crate::{
 use axum::{
     body::{Body, to_bytes},
     http::Request as HttpRequest,
+    routing::get,
 };
 use serde_json::{Value, json};
 use tlab::password::PasswordHasher;
@@ -52,14 +53,10 @@ async fn container(database: app::db::Database) -> Arc<Container> {
     })
 }
 fn app(container: Arc<Container>) -> Router {
-    Router::new()
-        .merge(router(container.clone()))
-        .merge(crate::auth::router())
-        .route("/api/protected", get(me))
-        .route("/health", get(|| async { "ok" }))
+    crate::http::router(container)
+        .unwrap()
         .route("/login", get(|| async { "login page" }))
         .route("/assets/test", get(|| async { "static" }))
-        .with_state(container)
 }
 fn request(method: &str, path: &str, cookie: &str) -> HttpRequest<Body> {
     HttpRequest::builder()
@@ -130,7 +127,7 @@ async fn automatic_refresh_uses_roles_and_preserves_cookies_on_lookup_failure() 
         let cookie = format!("{REFRESH}={}", secret.expose_secret());
         let response = app
             .clone()
-            .oneshot(request("GET", "/web/auth/me", &cookie))
+            .oneshot(request("GET", "/web/v1/auth/me", &cookie))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
@@ -150,7 +147,7 @@ async fn automatic_refresh_uses_roles_and_preserves_cookies_on_lookup_failure() 
             .unwrap();
         drop(conn);
         let response = app
-            .oneshot(request("GET", "/web/auth/me", &cookie))
+            .oneshot(request("GET", "/web/v1/auth/me", &cookie))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
@@ -174,7 +171,7 @@ async fn valid_cookie_access_and_public_routes_never_acquire_database() {
         let app = app(container);
         let mut req = request(
             "GET",
-            "/web/auth/me",
+            "/web/v1/auth/me",
             &format!("{ACCESS}={}; {REFRESH}=unused", token.expose_secret()),
         );
         req.headers_mut().insert(
@@ -214,7 +211,7 @@ async fn assert_refresh_response(
     sid: uuid::Uuid,
 ) {
     let response = app(container.clone())
-        .oneshot(request("GET", "/web/auth/me", &cookie))
+        .oneshot(request("GET", "/web/v1/auth/me", &cookie))
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
@@ -321,7 +318,7 @@ async fn malformed_access_is_rejected_without_refresh_database_query() {
             std::time::Duration::from_secs(2),
             app(container).oneshot(request(
                 "GET",
-                "/web/auth/me",
+                "/web/v1/auth/me",
                 &format!("{ACCESS}=invalid; {REFRESH}={}", secret.expose_secret()),
             )),
         )
@@ -343,7 +340,7 @@ async fn unknown_refresh_is_unauthorized_and_clears_both_cookies() {
         let response = app(container(database).await)
             .oneshot(request(
                 "GET",
-                "/web/auth/me",
+                "/web/v1/auth/me",
                 &format!("{REFRESH}=unknown"),
             ))
             .await
@@ -370,7 +367,7 @@ async fn refresh_database_failure_is_internal_and_keeps_cookies_for_retry() {
         let response = app(container(database).await)
             .oneshot(request(
                 "GET",
-                "/web/auth/me",
+                "/web/v1/auth/me",
                 &format!("{REFRESH}={}", secret.expose_secret()),
             ))
             .await
@@ -390,7 +387,7 @@ async fn logout_revokes_refresh_and_removes_matching_cookie_scope() {
         let container = container(database).await;
         let mut req = request(
             "POST",
-            "/web/auth/logout",
+            "/web/v1/auth/logout",
             &format!("{REFRESH}={}", secret.expose_secret()),
         );
         req.headers_mut().insert(
@@ -411,7 +408,7 @@ async fn logout_revokes_refresh_and_removes_matching_cookie_scope() {
         let response = app(container)
             .oneshot(request(
                 "GET",
-                "/web/auth/me",
+                "/web/v1/auth/me",
                 &format!("{REFRESH}={}", secret.expose_secret()),
             ))
             .await
@@ -437,7 +434,7 @@ async fn web_login_issues_secure_cookies_after_common_issuance() {
             .unwrap(),
         )
         .await;
-        let req = HttpRequest::post("/web/auth/local")
+        let req = HttpRequest::post("/web/v1/auth/local")
             .header(header::ORIGIN, container.config.auth.web.origin.as_str())
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(credentials.to_string()))
@@ -507,35 +504,35 @@ async fn csrf_rejects_login_logout_and_cross_origin_refresh_before_database() {
             (
                 "login missing origin",
                 "POST",
-                "/web/auth/local",
+                "/web/v1/auth/local",
                 None,
                 None,
             ),
             (
                 "logout null origin",
                 "POST",
-                "/web/auth/logout",
+                "/web/v1/auth/logout",
                 Some("null"),
                 None,
             ),
             (
                 "logout foreign origin",
                 "POST",
-                "/web/auth/logout",
+                "/web/v1/auth/logout",
                 Some("https://evil.test"),
                 None,
             ),
             (
                 "refresh foreign navigation",
                 "GET",
-                "/web/auth/me",
+                "/web/v1/auth/me",
                 None,
                 Some("cross-site"),
             ),
             (
                 "refresh same-site sibling",
                 "GET",
-                "/web/auth/me",
+                "/web/v1/auth/me",
                 None,
                 Some("same-site"),
             ),
@@ -571,11 +568,17 @@ async fn api_and_web_authentication_sources_are_separate() {
         let bearer = access(&container, "api", uuid::Uuid::new_v4(), now_seconds());
         let cookie = access(&container, "web", uuid::Uuid::new_v4(), now_seconds());
         let app = app(container);
+        let old_path = app
+            .clone()
+            .oneshot(request("GET", "/web/auth/me", ""))
+            .await
+            .unwrap();
+        assert_eq!(old_path.status(), StatusCode::NOT_FOUND);
         for (path, include_bearer, include_cookie, expected) in [
-            ("/api/protected", true, true, Some("api")),
-            ("/web/auth/me", true, true, Some("web")),
-            ("/api/protected", false, true, None),
-            ("/web/auth/me", true, false, None),
+            ("/api/v1/auth/me", true, true, Some("api")),
+            ("/web/v1/auth/me", true, true, Some("web")),
+            ("/api/v1/auth/me", false, true, None),
+            ("/web/v1/auth/me", true, false, None),
         ] {
             let mut req = request("GET", path, if include_cookie { "" } else { "other=value" });
             if include_cookie {
@@ -597,7 +600,9 @@ async fn api_and_web_authentication_sources_are_separate() {
             let response = app.clone().oneshot(req).await.unwrap();
             if let Some(sub) = expected {
                 assert_eq!(response.status(), StatusCode::OK);
-                assert_eq!(body(response).await["sub"], sub);
+                let result = body(response).await;
+                assert_eq!(result["sub"], sub);
+                assert_eq!(result.get("user").is_some(), path.starts_with("/web/v1/"));
             } else {
                 assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
             }
@@ -654,7 +659,7 @@ async fn expired_access_with_bad_signature_cannot_trigger_refresh() {
         let response = app(container)
             .oneshot(request(
                 "GET",
-                "/web/auth/me",
+                "/web/v1/auth/me",
                 &format!(
                     "{ACCESS}={}; {REFRESH}={}",
                     expired.expose_secret(),
@@ -678,7 +683,7 @@ async fn duplicate_auth_cookies_are_rejected_before_jars_choose_a_value() {
         let response = app(container)
             .oneshot(request(
                 "GET",
-                "/web/auth/me",
+                "/web/v1/auth/me",
                 &format!("{ACCESS}={}; {ACCESS}=invalid", token.expose_secret()),
             ))
             .await
@@ -768,7 +773,8 @@ async fn encoded_auth_cookie_names_are_rejected_before_authentication() {
                 }
                 let response = tokio::time::timeout(
                     std::time::Duration::from_secs(2),
-                    app.clone().oneshot(request("GET", "/web/auth/me", &cookie)),
+                    app.clone()
+                        .oneshot(request("GET", "/web/v1/auth/me", &cookie)),
                 )
                 .await
                 .unwrap()
@@ -811,7 +817,7 @@ async fn oversized_web_login_preserves_issued_session_and_refresh_preserves_exis
                     .fetch_one(conn.context().backend()).await.unwrap()
             };
             let before = count().await;
-            let response = send("/web/auth/local", credentials.clone()).await.unwrap();
+            let response = send("/web/v1/auth/local", credentials.clone()).await.unwrap();
             assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
             assert_private(&response);
             assert!(set_cookies(&response).is_empty());
@@ -830,7 +836,7 @@ async fn oversized_web_login_preserves_issued_session_and_refresh_preserves_exis
                     .fetch_one(conn.context().backend()).await.unwrap()
             };
             let before = snapshot().await;
-            let response = app.clone().oneshot(request("GET", "/web/auth/me", &format!("{REFRESH}={refresh}"))).await.unwrap();
+            let response = app.clone().oneshot(request("GET", "/web/v1/auth/me", &format!("{REFRESH}={refresh}"))).await.unwrap();
             assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
             assert_private(&response);
             assert!(set_cookies(&response).is_empty());

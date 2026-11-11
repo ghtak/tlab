@@ -8,7 +8,6 @@ use axum::{
     http::{HeaderValue, Method, StatusCode, header},
     middleware::{self, Next},
     response::Response,
-    routing::{get, post},
 };
 use tower_cookies::{
     Cookie, CookieManagerLayer, Cookies,
@@ -97,32 +96,23 @@ impl VerifiedWebClaims {
     }
 }
 
-pub(crate) fn router(container: Arc<Container>) -> Router<Arc<Container>> {
-    let protected = Router::new()
-        .route("/web/auth/me", get(me))
-        .nest("/web", crate::rbac::router())
-        .route(
-            "/web/accounts/local",
-            post(slice::create_local_user::create_local_user),
-        )
-        .route_layer(middleware::from_fn_with_state(
-            container.clone(),
-            authenticate,
-        ));
-    Router::new()
-        .merge(protected)
-        .route("/web/auth/local", post(slice::login_local::web_login))
-        .route("/web/auth/logout", post(slice::logout::web_logout))
-        .layer(middleware::from_fn_with_state(container, guard))
-        // Last added = outermost: read jar before auth; append delta after it.
-        .layer(CookieManagerLayer::new())
+/// Authenticate only the protected routes selected by the HTTP composition.
+pub(crate) fn with_authentication(
+    router: Router<Arc<Container>>,
+    container: Arc<Container>,
+) -> Router<Arc<Container>> {
+    router.route_layer(middleware::from_fn_with_state(container, authenticate))
 }
 
-async fn me(claims: AccessClaims) -> Response {
-    response::success(
-        StatusCode::OK,
-        serde_json::json!({"sub": claims.sub, "sid": claims.sid, "user": claims.user}),
-    )
+/// Apply cookie and request policy to the whole web group, including public auth.
+pub(crate) fn with_web_transport(
+    router: Router<Arc<Container>>,
+    container: Arc<Container>,
+) -> Router<Arc<Container>> {
+    router
+        .layer(middleware::from_fn_with_state(container, guard))
+        // Last added = outermost: read jar before guard/auth; append delta after it.
+        .layer(CookieManagerLayer::new())
 }
 
 pub(super) fn no_store(mut response: Response) -> Response {

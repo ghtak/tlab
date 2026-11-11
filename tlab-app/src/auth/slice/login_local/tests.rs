@@ -177,7 +177,8 @@ async fn request(container: Arc<Container>, path: &str, payload: String) -> (Sta
             serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap(),
         );
     }
-    let response = crate::auth::router()
+    let response = axum::Router::new()
+        .nest("/api/v1", crate::auth::api_routes())
         .with_state(container)
         .oneshot(
             Request::post(path)
@@ -322,7 +323,8 @@ async fn login_refresh_logout_http_flow() {
         async fn protected(claims: crate::auth::token::AccessClaims) -> axum::Json<Value> {
             axum::Json(json!({"sid": claims.sid, "sub": claims.sub}))
         }
-        let router = crate::auth::router()
+        let router = axum::Router::new()
+            .nest("/api/v1", crate::auth::api_routes())
             .route("/protected", axum::routing::get(protected))
             .with_state(container.clone());
         let protect = |token: &str| {

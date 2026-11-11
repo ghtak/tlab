@@ -64,7 +64,7 @@ JSON 입력은 `nickname`, `email`, `password`이며 성공 시 HTTP 201과 계�
 `auth::passwd_policy::PasswordPolicy` 구현체로 교체할 수 있다.
 `[auth] max_concurrent_password_hashes`의 기본값은 2이며, 슬롯이 가득 차면 HTTP 503을 반환한다.
 로그인·토큰 갱신과 Bearer 인증 계약은 [JWT API](docs/specs/auth/jwt-api/plan.md)를 따른다. 개별 업무의 권한 판단은 해당 핸들러가 담당한다.
-웹 쿠키 로그인은 `POST /web/auth/local`, 보호 요청은 `GET /web/auth/me`, 로그아웃은 `POST /web/auth/logout`이다.
+웹 쿠키 로그인은 `POST /web/v1/auth/local`, 보호 요청은 `GET /web/v1/auth/me`, 로그아웃은 `POST /web/v1/auth/logout`이다.
 unsafe 웹 요청에는 `[auth.web] origin`과 일치하는 Origin이 필요하다. 기본은 `https://localhost:8081`이며
 Secure·HttpOnly 쿠키를 사용한다. Access가 없거나 정상 만료되면 보호 middleware가 Refresh로 Access만 갱신한다.
 HTTP 개발 예외 설정·쿠키 이름·캐시·오류·브라우저 미검증 범위는 [JWT 웹 연결](docs/specs/auth/jwt-web/plan.md)을 참조한다.

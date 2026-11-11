@@ -16,7 +16,7 @@ pub(crate) use local_account::{
 };
 pub(crate) use repository::account::find_by_id as find_account;
 pub(crate) use repository::account::lock_by_id as lock_account;
-pub use route::router;
+pub(crate) use route::{api_routes, web_protected_routes, web_public_routes};
 pub(crate) use session_policy::allowed as account_allowed;
 #[allow(unused_imports, reason = "Token login is connected by API step 6")]
 pub use slice::login_local::{Command as LoginCommand, LocalLogin, LoginTokens};

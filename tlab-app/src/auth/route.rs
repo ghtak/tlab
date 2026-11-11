@@ -13,19 +13,39 @@ use crate::{
     auth::token::AccessClaims,
 };
 
-pub fn router() -> Router<Arc<Container>> {
+pub(crate) fn api_routes() -> Router<Arc<Container>> {
     Router::new()
         .route(
-            "/api/v1/accounts/local",
+            "/accounts/local",
             post(super::slice::create_local_user::create_local_user),
         )
-        .route("/api/v1/auth/local", post(super::slice::login_local::login))
+        .route("/auth/local", post(super::slice::login_local::login))
         .route(
-            "/api/v1/auth/refresh",
+            "/auth/refresh",
             post(super::slice::refresh_access_token::refresh),
         )
-        .route("/api/v1/auth/logout", post(super::slice::logout::logout))
-        .route("/api/v1/auth/me", get(me))
+        .route("/auth/logout", post(super::slice::logout::logout))
+        .route("/auth/me", get(me))
+}
+
+pub(crate) fn web_public_routes() -> Router<Arc<Container>> {
+    Router::new()
+        .route("/auth/local", post(super::slice::login_local::web_login))
+        .route("/auth/logout", post(super::slice::logout::web_logout))
+}
+
+pub(crate) fn web_protected_routes() -> Router<Arc<Container>> {
+    Router::new().route("/auth/me", get(web_me)).route(
+        "/accounts/local",
+        post(super::slice::create_local_user::create_local_user),
+    )
+}
+
+async fn web_me(claims: AccessClaims) -> Response {
+    response::success(
+        StatusCode::OK,
+        json!({"sub": claims.sub, "sid": claims.sid, "user": claims.user}),
+    )
 }
 
 async fn me(claim: Option<AccessClaims>) -> Response {
@@ -73,7 +93,7 @@ mod tests {
             .issue("123", sid, Default::default(), now - 600)
             .unwrap();
         let router = Router::new()
-            .route("/api/v1/auth/me", get(me))
+            .route("/auth/me", get(me))
             .with_state(verifier);
         for (token, expected_status) in [
             (Some(valid.expose_secret()), StatusCode::OK),
@@ -81,7 +101,7 @@ mod tests {
             (Some("invalid"), StatusCode::UNAUTHORIZED),
             (Some(expired.expose_secret()), StatusCode::UNAUTHORIZED),
         ] {
-            let mut request = Request::get("/api/v1/auth/me");
+            let mut request = Request::get("/auth/me");
             if let Some(token) = token {
                 request = request.header(AUTHORIZATION, format!("Bearer {token}"));
             }

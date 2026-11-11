@@ -6,6 +6,9 @@ use tower_http::trace::{DefaultOnRequest, DefaultOnResponse, TraceLayer};
 
 use crate::app::{Container, response};
 
+mod api;
+mod web;
+
 #[cfg(test)]
 mod tests;
 
@@ -31,15 +34,19 @@ pub async fn run(container: Container) -> tlab::Result<()> {
 
 pub(crate) fn router(container: Arc<Container>) -> tlab::Result<Router> {
     let mut router: Router<Arc<Container>> = Router::new()
-        .merge(crate::auth::router())
-        .nest("/api/v1", crate::rbac::router())
-        .merge(crate::auth::web::router(container.clone()))
+        .nest("/api/v1", api::router())
+        .nest("/web/v1", web::router(container.clone()))
         .route("/health", get(|| async { "ok" }))
         .route("/db_status", get(db_status));
     if let Some(files) = &container.config.server.static_files {
         router = router.merge(files.router()?);
     }
     Ok(trace_requests(router).with_state(container))
+}
+
+// Business features exposed through both Bearer and cookie authentication.
+fn shared_routes() -> Router<Arc<Container>> {
+    Router::new().merge(crate::rbac::router())
 }
 
 pub(crate) fn trace_requests<S: Clone + Send + Sync + 'static>(router: Router<S>) -> Router<S> {

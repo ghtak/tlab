@@ -19,8 +19,8 @@ status: draft
 
 07의 원본 앱 연결과 08의 실제 HTTP·CLI 통합 검증을 완료했다. 아래 06 기준과 과거 기록은 당시 근거로 보존하며, 현재 연결 상태는 이 절과 하단 [07/08 결과](#rbac-07-08-results)를 우선한다. 문서 상태는 `draft`를 유지한다. (확인)
 
-- 기존 Container의 DB·resolver를 사용하며 06 다섯 slice 선언과 auth `find_account` 재노출을 연결했다. JSON은 `/api/v1`, 웹은 `/web` 아래에서 같은 RBAC handler를 사용한다. 웹만 기존 쿠키 인증·자동 갱신·Origin/CSRF 계층을 적용한다. (확인)
-- 가입은 `POST /api/v1/accounts/local`(Bearer) 또는 `POST /web/accounts/local`(쿠키·CSRF)에서 `account.create` 진입 인가 후 기존 가입 usecase를 호출한다. 인증 실패 401, 정상 권한 거부 403, resolver 장애 500을 구분한다. 공통 AppError HTTP 매핑을 재사용한다. (확인)
+- 기존 Container의 DB·resolver를 사용하며 06 다섯 slice 선언과 auth `find_account` 재노출을 연결했다. JSON은 `/api/v1`, 웹은 `/web/v1` 아래에서 같은 RBAC handler를 사용한다. 웹만 기존 쿠키 인증·자동 갱신·Origin/CSRF 계층을 적용한다. (확인)
+- 가입은 `POST /api/v1/accounts/local`(Bearer) 또는 `POST /web/v1/accounts/local`(쿠키·CSRF)에서 `account.create` 진입 인가 후 기존 가입 usecase를 호출한다. 인증 실패 401, 정상 권한 거부 403, resolver 장애 500을 구분한다. 공통 AppError HTTP 매핑을 재사용한다. (확인)
 - `bootstrap-admin --email <email> --nickname <nickname>`은 비밀번호 한 줄을 stdin으로만 받는다. argv 비밀번호 옵션은 없고 터미널 입력은 거부한다. 줄 끝 LF/CRLF만 제거하며 나머지 공백은 보존한다. migrate·서버와 상호 배타적이며 서버·TLS/JWT·tracing을 초기화하지 않는다. 성공 stdout은 account_id/role_id JSON 한 줄, 실패 stderr는 공개 code/message만 출력한다. (확인)
 - 06의 일반 계정 조회·부여/회수 계정 잠금 없음·역할 정렬 잠금·같은 tx 재인가·bootstrap 단독 실행과 전체 카탈로그 batch 저장·가입 준비→연결 반환→해싱→저장 tx 계약을 유지했다. (확인)
 - 검증 명령·범위·남은 한계는 [검증 기록](verification.md)을 따른다. 테스트 통과는 문서 수락·배포 승인을 뜻하지 않는다. (확인)
@@ -683,7 +683,7 @@ bootstrap은 배포 전 최초 초기화에만 사용하고 이미 역할이 있
 ### 07/08 원본 앱 통합·검증·자체 점검 완료
 
 - 사용자 요청 “07/08 작업 진행해 herdr 로”와 이번 구체 지시에 따라 07 구현 후 08 검증을 순서대로 수행했다. 시작 시 git status는 깨끗했고 다른 에이전트·임시 앱 사본·동기화 절차·커밋·배포 없이 직접 작업했다. herdr `rbac-0708` 터미널을 오른쪽 pane에 표시해 원본 workspace 명령을 실행했다. (확인)
-- 07: auth `find_account` 재노출·06 다섯 slice 선언을 연결하고 [RBAC Router](../../../../tlab-app/src/rbac/route.rs)를 `/api/v1`과 `/web`에 등록했다. 웹은 기존 쿠키 인증·자동 갱신·CSRF 계층으로 감싸고 JSON은 Bearer를 사용한다. 가입 handler는 account.create 진입 인가를 수행한다. 기존 Container의 DB/resolver와 공통 AppError HTTP 변환을 재사용했으며 중복 풀·resolver·오류 추상화를 만들지 않았다. 서버 실행과 테스트가 같은 `http::router` 조립을 사용한다. (확인)
+- 07: auth `find_account` 재노출·06 다섯 slice 선언을 연결하고 [RBAC Router](../../../../tlab-app/src/rbac/route.rs)를 `/api/v1`과 `/web/v1`에 등록했다. 웹은 기존 쿠키 인증·자동 갱신·CSRF 계층으로 감싸고 JSON은 Bearer를 사용한다. 가입 handler는 account.create 진입 인가를 수행한다. 기존 Container의 DB/resolver와 공통 AppError HTTP 변환을 재사용했으며 중복 풀·resolver·오류 추상화를 만들지 않았다. 서버 실행과 테스트가 같은 `http::router` 조립을 사용한다. (확인)
 - [bootstrap CLI](../../../../tlab-app/src/rbac/slice/bootstrap_admin/cli.rs): `bootstrap-admin --email <email> --nickname <nickname>`, 비밀번호는 stdin 한 줄로 받으며 터미널 입력·비밀번호 argv 옵션을 허용하지 않는다. LF/CRLF만 제거하고 비밀번호 공백은 유지한다. main이 migrate/서버와 상호 배타 경로를 선택하고 DB·기존 해셔·auth 기본 정책·슬롯만 조립한다. 서버/TLS/JWT/tracing을 초기화하지 않으며 성공 stdout은 account_id/role_id JSON 한 줄, 실패 stderr는 공개 code/message만 출력하고 비정상 종료한다. (확인)
 - 최신 06 계약을 그대로 유지했다. 일반 계정 조회, 부여·회수 계정 잠금 없음, 역할 정렬 잠금과 같은 tx 재판정, bootstrap 격리 단독 실행·advisory lock/카탈로그 재검증 없음·전체 현재 카탈로그 batch 저장, auth 공용 준비→연결 반환→해싱→저장 tx를 변경하지 않았다. 의미 구분 타입·공통 AppResult·생성 검증과 임의 상한 없음 원칙을 유지했고 migration·의존성·Cargo.lock을 변경하지 않았다. (확인)
 - 08: 원본 `Container::new`와 실제 Router를 사용하는 HTTP 시나리오 4개 및 별도 CLI 프로세스 시나리오를 추가했다. 발급→인가→역할 변경→갱신, JWT 잔존 역할·현재 역할 퍼미션, 권한 상승 거부, JSON/웹 401·403·성공·DB 장애, 쿠키·CSRF·자동 Refresh 실패 시 handler 미실행을 확인했다. 서로 다른 행위자의 실제 HTTP 편집↔관리/부여 경합에서 pg_blocking_pids로 역할 잠금 대기를 확인한 뒤 현재 권한·위임 범위를 재판정하는 것을 검증했다. 05의 탈퇴 계정 거짓 양성은 관리 퍼미션을 유지하는 대조군으로 보완했다. 기존 저장소의 격리 helper를 CLI가 재사용하도록 추출했다. (확인)

@@ -55,21 +55,21 @@ sequenceDiagram
 
 | 위치 | 소유 책임 |
 | --- | --- |
-| `auth/web.rs` | 쿠키 속성·웹 guard·자동 갱신 middleware·검증 결과 marker·웹 Router 조립 |
+| `auth/web.rs` | 쿠키 속성·웹 guard·자동 갱신 middleware·검증 결과 marker·인증/전송 layer 적용 |
 | `slice/login_local/route.rs::web_login` | 기존 공통 발급 usecase 호출 후 웹 쿠키와 비밀값 없는 응답 구성 |
 | `slice/logout/route.rs::web_logout` | 해당 Refresh 폐기 usecase 호출 후 쿠키 제거 |
 | 기존 login/refresh/logout usecase | 자격 인증·저장·최신 계정 정책·발급·폐기·트랜잭션과 고정 만료 |
 | `auth/token.rs` | 서명·iss/aud·형식·시간 검증, 정상 발급된 토큰의 만료와 나머지 오류 구별 |
 | `auth/extractor.rs` | 웹 marker가 있으면 그 검증 결과, 그 외는 기존 Bearer 검증 |
-| Container / http | 설정 검증·인스턴스 소유 / 웹 Router 병합 |
+| Container / http | 설정 검증·인스턴스 소유 / `/web/v1` prefix와 웹 Router 조립 |
 
 handler는 웹에서도 `claims: AccessClaims`를 사용한다. `VerifiedWebClaims`의 필드는 web 모듈에 비공개여서 생성자는 이 middleware에만 있다. 일반 `AccessClaims` extension은 무시한다. 클라이언트 JSON·헤더로 claims나 marker를 만들지 않으며 middleware가 Authorization 헤더를 합성하지 않는다. 인증 후 업무별 권한 판단은 handler/usecase 책임이다. (확인)
 
 | 메서드·경로 | 입력·결과 |
 | --- | --- |
-| POST `/web/auth/local` | 정확한 Origin + JSON `email`, `password`. 공통 발급 commit 후 Access·Refresh 쿠키, 200 JSON `account_id`, `status`. 본문에 토큰 없음 |
-| GET/HEAD `/web/auth/me` | 쿠키 인증 보호 경로. 200 JSON `sub`, `sid`, `user`. GET의 업무 변경 없음 |
-| POST `/web/auth/logout` | 정확한 Origin + Refresh 쿠키. 해당 로그인만 폐기 후 200 `{}`와 두 쿠키 제거. Access는 없어도 됨 |
+| POST `/web/v1/auth/local` | 정확한 Origin + JSON `email`, `password`. 공통 발급 commit 후 Access·Refresh 쿠키, 200 JSON `account_id`, `status`. 본문에 토큰 없음 |
+| GET/HEAD `/web/v1/auth/me` | 쿠키 인증 보호 경로. 200 JSON `sub`, `sid`, `user`. GET의 업무 변경 없음 |
+| POST `/web/v1/auth/logout` | 정확한 Origin + Refresh 쿠키. 해당 로그인만 폐기 후 200 `{}`와 두 쿠키 제거. Access는 없어도 됨 |
 
 웹은 Authorization을 인증원으로 사용하지 않는다. Bearer와 쿠키가 같이 오면 웹은 쿠키만 검증하며, 쿠키가 없거나 잘못되어도 Bearer로 대체하지 않는다. API에는 웹 middleware·CookieManager를 적용하지 않으며 Bearer만 사용하고 쿠키 fallback이 없다. 기존 `/api/v1/auth/*`의 JSON 요청·응답·오류·Bearer challenge는 유지된다. (확인)
 
@@ -214,3 +214,7 @@ HTTP 개발 예외는 명시적으로 `origin = "http://localhost:8080"`와 `all
 검증: 로컬 PostgreSQL의 격리 스키마를 사용한 `env TLAB_TEST_DATABASE_URL=<공개 로컬 개발 DB> cargo test -p tlab-app --locked -- --include-ignored --test-threads=1`에서 71 passed, 0 ignored. 자체 점검에서 토큰 검증 실패의 조기 반환에도 웹 캐시 정책 `no-store, private`를 적용한 뒤, 같은 환경의 `cargo test -p tlab-app --locked auth::web::tests -- --include-ignored --test-threads=1`에서 최종 코드의 웹 17개가 모두 통과했다. 최종 `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo fmt --all -- --check`, `git diff --check`도 통과했다. 의존성·잠금 파일 변경이 없어 audit은 이번 구현에서 재실행하지 않았다. (확인)
 
 자체 점검: 토큰 발급·저장·commit 실패는 기존 트랜잭션 경계에서 처리하고, 반환 후 쿠키 구성 실패는 토큰 저장에 영향을 주지 않는 것을 확인했다. 쿠키는 두 개 모두 구성·검사한 뒤에만 jar에 반영한다. 변경한 크기 초과 테스트는 ASCII·다중 바이트 프로필 모두에서 422, 새 Set-Cookie 없음, 신규 Refresh 저장 유지와 기존 세션 갱신 시 DB 불변을 검증했다. 실제 브라우저·운영 배포·롤백은 실행하지 않았다. 구현·검증·자체 점검 완료이며 커밋은 생성하지 않았다. (확인)
+
+### 웹 라우터 조립 및 prefix 후속 변경
+
+웹 경로는 현재 `/web/v1`을 사용한다. `http/web.rs`가 공개·보호 그룹과 공유 업무 라우터를 조립하고 `auth/route.rs`는 상대 경로를 제공한다. `auth/web.rs`는 인증·웹 전송 정책과 layer 적용 함수를 제공한다. [라우터 조립 구현·검증 기록](../../http/route-composition/plan.md)을 따른다. (확인)
