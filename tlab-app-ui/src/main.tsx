@@ -10,17 +10,21 @@ import { sessionKey } from './feature/auth/services/session'
 import { ThemeProvider } from './components/theme-provider'
 import './index.css'
 
-const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false, gcTime: 0 } } })
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false }, mutations: { retry: false, gcTime: 0 } },
+})
 const api = createApiClient({
   baseUrl: new URL('/web/v1/', window.location.origin).href,
   credentials: 'same-origin',
   generation: () => session.generation(),
-  onUnauthorized: generation => session.unauthorized(generation),
+  onUnauthorized: (generation) => session.unauthorized(generation),
 })
-const session = createSession(queryClient, createAuthApi(api), () => { void router.invalidate() })
+const session = createSession(queryClient, createAuthApi(api), () => {
+  void router.invalidate()
+})
 const router = createRouter({ routeTree, context: { session }, defaultPendingMs: 0 })
 let previousSession = queryClient.getQueryData(sessionKey)
-queryClient.getQueryCache().subscribe(event => {
+queryClient.getQueryCache().subscribe((event) => {
   if (event.query.queryKey[0] !== 'auth') return
   const current = queryClient.getQueryData(sessionKey)
   if (current !== undefined && current !== previousSession) {
@@ -30,7 +34,9 @@ queryClient.getQueryCache().subscribe(event => {
 })
 
 declare module '@tanstack/react-router' {
-  interface Register { router: typeof router }
+  interface Register {
+    router: typeof router
+  }
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

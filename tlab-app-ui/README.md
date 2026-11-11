@@ -38,6 +38,10 @@ just app-run-ui
 | `npm run dev` | Vite 개발 서버를 실행한다. |
 | `npm run build` | 프로덕션 파일을 `dist/`에 생성하고 TypeScript 타입을 검사한다. |
 | `npm run preview` | 빌드된 결과를 로컬에서 확인한다. 먼저 빌드가 필요하다. |
+| `npm run format` | TypeScript·TSX 소스와 테스트·설정 파일의 형식을 정리한다. |
+| `npm run format:check` | TypeScript·TSX 파일의 포맷 준수 여부를 검사한다. |
+
+포맷은 `.prettierrc.json`에서 관리한다. 들여쓰기 2칸, 줄 너비 기준 100자, 작은따옴표, 세미콜론 생략을 사용한다. 자동 생성되는 `src/routeTree.gen.ts`와 빌드·검증 결과물은 제외한다. 편집기에서 Prettier를 사용하면 같은 설정이 적용된다.
 
 ## 테마
 

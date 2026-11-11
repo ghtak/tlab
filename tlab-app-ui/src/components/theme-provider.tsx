@@ -13,7 +13,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const media = window.matchMedia('(prefers-color-scheme: dark)')
     const apply = () => {
       document.documentElement.dataset.theme = theme
-      document.documentElement.classList.toggle('dark', theme === 'dark' || (theme === 'system' && media.matches))
+      document.documentElement.classList.toggle(
+        'dark',
+        theme === 'dark' || (theme === 'system' && media.matches),
+      )
     }
     apply()
     media.addEventListener('change', apply)
@@ -23,10 +26,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   function selectTheme(next: Theme) {
     setTheme(next)
     // Storage can be unavailable; selection still works for the current page.
-    try { localStorage.setItem('tlab.theme', next) } catch {}
+    try {
+      localStorage.setItem('tlab.theme', next)
+    } catch {}
   }
 
-  return <ThemeContext.Provider value={{ theme, setTheme: selectTheme }}>{children}</ThemeContext.Provider>
+  return (
+    <ThemeContext.Provider value={{ theme, setTheme: selectTheme }}>
+      {children}
+    </ThemeContext.Provider>
+  )
 }
 
 export function useTheme() {

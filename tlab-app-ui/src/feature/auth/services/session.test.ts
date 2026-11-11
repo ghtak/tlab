@@ -5,16 +5,29 @@ import { createAuthApi } from './auth-api'
 import type { AuthApi, SessionUser } from './auth-api'
 import { createSession, sessionKey, SessionConfirmationError } from './session'
 
-const user: SessionUser = { sub: '1', sid: 'session', user: { nickname: 'Tester', status: 'ACTIVE', role_ids: [] } }
+const user: SessionUser = {
+  sub: '1',
+  sid: 'session',
+  user: { nickname: 'Tester', status: 'ACTIVE', role_ids: [] },
+}
 function setup(overrides: Partial<AuthApi> = {}) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-  const auth: AuthApi = { me: vi.fn(async () => user), login: vi.fn(async () => {}), logout: vi.fn(async () => {}), ...overrides }
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  const auth: AuthApi = {
+    me: vi.fn(async () => user),
+    login: vi.fn(async () => {}),
+    logout: vi.fn(async () => {}),
+    ...overrides,
+  }
   const changed = vi.fn()
   return { client, auth, changed, session: createSession(client, auth, changed) }
 }
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>(done => { resolve = done })
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
   return { promise, resolve }
 }
 
@@ -30,17 +43,31 @@ describe('session contracts', () => {
   it('keeps failed confirmation distinct and retries only me', async () => {
     const me = vi.fn().mockRejectedValueOnce(new ApiError(503)).mockResolvedValue(user)
     const { session, auth } = setup({ me })
-    await expect(session.login({ email: 'test@example.test', password: 'temporary' })).rejects.toBeInstanceOf(SessionConfirmationError)
+    await expect(
+      session.login({ email: 'test@example.test', password: 'temporary' }),
+    ).rejects.toBeInstanceOf(SessionConfirmationError)
     await expect(session.retry()).resolves.toEqual(user)
     expect(auth.login).toHaveBeenCalledOnce()
   })
   it('distinguishes unauthenticated from initial server or network failure', async () => {
-    for (const error of [new ApiError(503), new TypeError('offline'), new ApiError(403, 'CSRF_REJECTED')]) {
-      const { session, client } = setup({ me: async () => { throw error } })
+    for (const error of [
+      new ApiError(503),
+      new TypeError('offline'),
+      new ApiError(403, 'CSRF_REJECTED'),
+    ]) {
+      const { session, client } = setup({
+        me: async () => {
+          throw error
+        },
+      })
       await expect(session.ensure()).rejects.toBe(error)
       expect(client.getQueryData(sessionKey)).toBeUndefined()
     }
-    const { session } = setup({ me: async () => { throw new ApiError(401, 'INVALID_ACCESS_TOKEN') } })
+    const { session } = setup({
+      me: async () => {
+        throw new ApiError(401, 'INVALID_ACCESS_TOKEN')
+      },
+    })
     await expect(session.ensure()).resolves.toBeNull()
   })
   it('preserves authenticated state on logout failure and clears it only on success', async () => {
@@ -57,7 +84,13 @@ describe('session contracts', () => {
   it('aborts old session lookups and ignores a late old-generation 401 after login', async () => {
     const old = deferred<SessionUser>()
     let signal: AbortSignal | undefined
-    const me = vi.fn().mockImplementationOnce((value: AbortSignal) => { signal = value; return old.promise }).mockResolvedValue(user)
+    const me = vi
+      .fn()
+      .mockImplementationOnce((value: AbortSignal) => {
+        signal = value
+        return old.promise
+      })
+      .mockResolvedValue(user)
     const { session, client } = setup({ me })
     const oldGeneration = session.generation()
     const initial = session.ensure().catch(() => undefined)
@@ -86,7 +119,12 @@ describe('HTTP boundary', () => {
     const fetch = vi.fn(() => response.promise)
     vi.stubGlobal('fetch', fetch)
     let generation = 0
-    const api = createApiClient({ baseUrl: 'http://localhost/web/v1/', credentials: 'same-origin', generation: () => generation, onUnauthorized: vi.fn() })
+    const api = createApiClient({
+      baseUrl: 'http://localhost/web/v1/',
+      credentials: 'same-origin',
+      generation: () => generation,
+      onUnauthorized: vi.fn(),
+    })
     const request = api('private')
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
     generation++
@@ -96,11 +134,22 @@ describe('HTTP boundary', () => {
   })
 
   it('retains non-JSON status, never retries, and distinguishes public and protected errors', async () => {
-    const fetch = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ code: 'INVALID_ACCESS_TOKEN' }), { status: 401 }))
+    const fetch = vi
+      .fn()
+      .mockImplementation(
+        async () => new Response(JSON.stringify({ code: 'INVALID_ACCESS_TOKEN' }), { status: 401 }),
+      )
     vi.stubGlobal('fetch', fetch)
     const unauthorized = vi.fn()
-    const api = createApiClient({ baseUrl: 'http://localhost/web/v1/', credentials: 'same-origin', generation: () => 7, onUnauthorized: unauthorized })
-    await expect(createAuthApi(api).login({ email: 'test@example.test', password: 'temporary' })).rejects.toMatchObject({ status: 401 })
+    const api = createApiClient({
+      baseUrl: 'http://localhost/web/v1/',
+      credentials: 'same-origin',
+      generation: () => 7,
+      onUnauthorized: unauthorized,
+    })
+    await expect(
+      createAuthApi(api).login({ email: 'test@example.test', password: 'temporary' }),
+    ).rejects.toMatchObject({ status: 401 })
     expect(unauthorized).not.toHaveBeenCalled()
     await expect(api('protected')).rejects.toMatchObject({ status: 401 })
     expect(unauthorized).toHaveBeenCalledWith(7)
