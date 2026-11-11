@@ -33,12 +33,13 @@ function deferred<T>() {
 
 describe('session contracts', () => {
   it('confirms login with me and clears prior user caches', async () => {
-    const { session, client, auth } = setup()
+    const { session, client, auth, changed } = setup()
     client.setQueryData(['user', 'old', 'private'], { secret: true })
     await session.login({ email: 'test@example.test', password: 'temporary' })
     expect(auth.login).toHaveBeenCalledOnce()
     expect(client.getQueryData(sessionKey)).toEqual(user)
     expect(client.getQueryData(['user', 'old', 'private'])).toBeUndefined()
+    expect(changed).toHaveBeenCalledOnce()
   })
   it('keeps failed confirmation distinct and retries only me', async () => {
     const me = vi.fn().mockRejectedValueOnce(new ApiError(503)).mockResolvedValue(user)
@@ -72,14 +73,41 @@ describe('session contracts', () => {
   })
   it('preserves authenticated state on logout failure and clears it only on success', async () => {
     const logout = vi.fn().mockRejectedValueOnce(new ApiError(503)).mockResolvedValue(undefined)
-    const { session, client } = setup({ logout })
+    const { session, client, changed } = setup({ logout })
     await session.ensure()
+    changed.mockClear()
     client.setQueryData(['user', user.sub, 'private'], 'data')
     await expect(session.logout()).rejects.toBeInstanceOf(ApiError)
     expect(client.getQueryData(sessionKey)).toEqual(user)
+    expect(changed).not.toHaveBeenCalled()
     await session.logout()
     expect(client.getQueryData(sessionKey)).toBeNull()
     expect(client.getQueryData(['user', user.sub, 'private'])).toBeUndefined()
+    expect(changed).toHaveBeenCalledOnce()
+  })
+  it('notifies after refetched session identity is committed, ignoring profile-only changes', async () => {
+    const me = vi
+      .fn()
+      .mockResolvedValueOnce(user)
+      .mockResolvedValueOnce({ ...user, user: { ...user.user, nickname: 'Renamed' } })
+      .mockResolvedValueOnce({ ...user, sid: 'replacement' })
+      .mockRejectedValueOnce(new ApiError(401, 'INVALID_ACCESS_TOKEN'))
+      .mockRejectedValueOnce(new ApiError(401, 'INVALID_ACCESS_TOKEN'))
+    const { session, client, changed } = setup({ me })
+    const observed: (SessionUser | null | undefined)[] = []
+    changed.mockImplementation(() => observed.push(client.getQueryData(sessionKey)))
+    await session.ensure()
+    const refetch = () => client.fetchQuery({ ...session.options(), staleTime: 0 })
+    await refetch()
+    expect(changed).toHaveBeenCalledOnce()
+    expect(client.getQueryData<SessionUser>(sessionKey)?.user.nickname).toBe('Renamed')
+    await refetch()
+    await refetch()
+    await refetch()
+    expect(observed).toEqual([user, { ...user, sid: 'replacement' }, null])
+    session.dispose()
+    client.setQueryData(sessionKey, user)
+    expect(changed).toHaveBeenCalledTimes(3)
   })
   it('aborts old session lookups and ignores a late old-generation 401 after login', async () => {
     const old = deferred<SessionUser>()
@@ -91,7 +119,7 @@ describe('session contracts', () => {
         return old.promise
       })
       .mockResolvedValue(user)
-    const { session, client } = setup({ me })
+    const { session, client, changed } = setup({ me })
     const oldGeneration = session.generation()
     const initial = session.ensure().catch(() => undefined)
     await session.login({ email: 'test@example.test', password: 'temporary' })
@@ -100,8 +128,10 @@ describe('session contracts', () => {
     await initial
     session.unauthorized(oldGeneration)
     expect(client.getQueryData(sessionKey)).toEqual(user)
+    changed.mockClear()
     session.unauthorized(session.generation())
     expect(client.getQueryData(sessionKey)).toBeNull()
+    expect(changed).toHaveBeenCalledOnce()
   })
   it('rejects overlapping session transitions', async () => {
     const request = deferred<void>()

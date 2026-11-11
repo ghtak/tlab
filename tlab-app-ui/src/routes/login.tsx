@@ -14,7 +14,6 @@ function Login() {
     <LoginPage
       session={session}
       onAuthenticated={async () => {
-        await router.invalidate()
         await router.navigate({ to: '/', replace: true })
       }}
     />

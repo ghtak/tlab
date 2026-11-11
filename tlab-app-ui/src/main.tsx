@@ -6,7 +6,6 @@ import { routeTree } from './routeTree.gen'
 import { createApiClient } from './lib/api'
 import { createAuthApi } from './feature/auth/services/auth-api'
 import { createSession } from './feature/auth/services/session'
-import { sessionKey } from './feature/auth/services/session'
 import { ThemeProvider } from './components/theme-provider'
 import './index.css'
 
@@ -23,15 +22,7 @@ const session = createSession(queryClient, createAuthApi(api), () => {
   void router.invalidate()
 })
 const router = createRouter({ routeTree, context: { session }, defaultPendingMs: 0 })
-let previousSession = queryClient.getQueryData(sessionKey)
-queryClient.getQueryCache().subscribe((event) => {
-  if (event.query.queryKey[0] !== 'auth') return
-  const current = queryClient.getQueryData(sessionKey)
-  if (current !== undefined && current !== previousSession) {
-    previousSession = current
-    void router.invalidate()
-  }
-})
+import.meta.hot?.dispose(() => session.dispose())
 
 declare module '@tanstack/react-router' {
   interface Register {

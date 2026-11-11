@@ -85,6 +85,30 @@ test('actual backend: credential rejection remains on login', async ({ page }) =
 })
 
 const user = { sub: '1', sid: 'mock', user: { nickname: 'Tester', status: 'ACTIVE', role_ids: [] } }
+test('mock: focus refetch updates route entry when the session ends or starts elsewhere', async ({
+  page,
+}) => {
+  let signedIn = true
+  await page.route('**/web/v1/auth/me', (route) =>
+    route.fulfill({
+      status: signedIn ? 200 : 401,
+      json: signedIn ? user : { code: 'INVALID_ACCESS_TOKEN' },
+    }),
+  )
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: '대시보드' })).toBeVisible()
+  signedIn = false
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event('visibilitychange', { bubbles: true })),
+  )
+  await expect(page).toHaveURL(/\/login$/)
+  await expect(page.getByRole('heading', { name: '로그인' })).toBeVisible()
+  signedIn = true
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event('visibilitychange', { bubbles: true })),
+  )
+  await expect(page.getByRole('heading', { name: '대시보드' })).toBeVisible()
+})
 test('mock: initial server failure has retry without credential prompt', async ({ page }) => {
   let failing = true
   await page.route('**/web/v1/auth/me', (route) =>

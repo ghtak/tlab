@@ -142,4 +142,6 @@ service는 API 통신이나 세션 관리처럼 구체적인 처리 책임을 �
 
 `main.tsx`가 QueryClient·ky 클라이언트·auth API·session·Router를 조립한다. `lib/api.ts`는 전달받은 세대·401 통지 계약으로 보호 요청의 오류를 연결하고, 이전 세대의 보호 요청 성공을 취소로 전달한다. 로그인·로그아웃·me는 auth가 오류 의미와 전환을 직접 처리한다. Query와 ky 재시도는 명시적으로 끄며, 사용자 Query는 `['user', sub, ...]` 계약을 따른다. API 타입은 `auth-api.ts`, 세션 계약과 Query 옵션은 `session.ts`, 화면 props는 컴포넌트 옆에 둔다. (확인)
 
+`session.ts`는 세션 Query의 성공 결과가 캐시에 반영된 뒤 최초 확인·로그인 여부·사용자 ID·세션 ID 변경을 한 경로의 callback으로 통지한다. focus/reconnect 자동 재조회도 같은 경로를 사용하며 닉네임 등 프로필만 바뀌면 라우터 재평가를 요청하지 않는다. `main.tsx`는 이 통지를 `router.invalidate()`에 연결하고 HMR 해제 시 `session.dispose()`로 구독을 해제한다. 로그인 경로의 callback은 성공 후 `/` 이동만 담당한다. (확인)
+
 현재 보호 URL은 `/` 하나이므로 로그인 성공 후 `/`로 이동한다. 임의 복귀 URL 입력은 받지 않는다. 추가 보호 경로의 복귀 정책은 그 경로를 도입할 때 정한다. 개발 서버는 localhost:5173과 `/web/v1` proxy를 사용한다. 실제 검증과 운영 미검증 범위는 [인증 기록](../specs/auth/web-ui-session/plan.md)의 최신 구현 기록을 따른다. (확인)

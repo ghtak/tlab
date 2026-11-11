@@ -12,6 +12,24 @@ export const sessionKey = ['auth', 'session'] as const
 export function createSession(queryClient: QueryClient, auth: AuthApi, changed: () => void) {
   let generation = 0
   let transitioning = false
+  let previous = queryClient.getQueryData<SessionUser | null>(sessionKey)
+  // Observe committed results, including automatic focus/reconnect refetches.
+  const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+    if (
+      event.type !== 'updated' ||
+      event.action.type !== 'success' ||
+      event.query.queryKey.length !== sessionKey.length ||
+      !sessionKey.every((part, index) => event.query.queryKey[index] === part)
+    ) {
+      return
+    }
+    const current = queryClient.getQueryData<SessionUser | null>(sessionKey)
+    if (current === undefined) return
+    const identityChanged =
+      previous === undefined || previous?.sub !== current?.sub || previous?.sid !== current?.sid
+    previous = current
+    if (identityChanged) changed()
+  })
   const userQueries = {
     predicate: (query: { queryKey: readonly unknown[] }) => query.queryKey[0] === 'user',
   }
@@ -69,6 +87,7 @@ export function createSession(queryClient: QueryClient, auth: AuthApi, changed: 
     await queryClient.cancelQueries(userQueries)
   }
   return {
+    dispose: unsubscribe,
     options,
     generation: () => generation,
     ensure: () => queryClient.fetchQuery(options()),
@@ -81,7 +100,6 @@ export function createSession(queryClient: QueryClient, auth: AuthApi, changed: 
         try {
           const user = await queryClient.fetchQuery({ ...options(), staleTime: 0 })
           if (!user) throw new ApiError(401, 'INVALID_ACCESS_TOKEN')
-          changed()
           return
         } catch (error) {
           throw new SessionConfirmationError(error)
@@ -115,7 +133,6 @@ export function createSession(queryClient: QueryClient, auth: AuthApi, changed: 
       void queryClient.cancelQueries({ queryKey: sessionKey })
       void clearUser()
       queryClient.setQueryData(sessionKey, null)
-      changed()
     },
   }
 }
