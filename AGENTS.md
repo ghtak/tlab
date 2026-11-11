@@ -68,3 +68,5 @@
 ## herdr 
 
 - ~/.config/herdr-app/AGENTS.md 파일을 읽어 요청한 herdr 작업을 수행한다.
+- 작업은 기본적으로 right pane 에서 수행
+- 작업 배분시 참조할 파일의 목록을 포함하여 프롬프트를 생성하여 subagent 가 원활히 동작하게 한다
