@@ -3,10 +3,38 @@ use std::future::Future;
 use uuid::Uuid;
 type Database = crate::app::db::Database;
 
+/// Authentication tests prepare users through the signup operation; HTTP
+/// account.create authorization is covered by the application integration tests.
+pub(crate) async fn create_local_user(
+    container: &crate::app::Container,
+    input: super::LocalAccountInput,
+) -> serde_json::Value {
+    serde_json::to_value(
+        super::slice::create_local_user::execute(
+            &container.database,
+            container.passwd_policy.as_ref(),
+            container.passwd_hasher.clone(),
+            container.passwd_hash_slots.clone(),
+            input,
+        )
+        .await
+        .unwrap(),
+    )
+    .unwrap()
+}
+
 // Every scenario gets its own schema, including when tests run concurrently.
-pub(super) async fn isolated<F, Fut>(scenario: F)
+pub(crate) async fn isolated<F, Fut>(scenario: F)
 where
     F: FnOnce(Database) -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    isolated_with_url(|database, _url| scenario(database)).await;
+}
+
+pub(crate) async fn isolated_with_url<F, Fut>(scenario: F)
+where
+    F: FnOnce(Database, String) -> Fut + Send + 'static,
     Fut: Future<Output = ()> + Send + 'static,
 {
     let url = std::env::var("TLAB_TEST_DATABASE_URL").expect("set TLAB_TEST_DATABASE_URL");
@@ -26,7 +54,7 @@ where
     let scoped_url = format!("{url}{separator}options=-csearch_path%3D{schema}");
     let result = tokio::spawn(async move {
         let db = Database::new(&tlab::sqlxdb::Config {
-            url: scoped_url,
+            url: scoped_url.clone(),
             max_connections: 4,
         })
         .await
@@ -49,7 +77,7 @@ where
             .await
             .unwrap();
         drop(conn);
-        scenario(db).await;
+        scenario(db, scoped_url).await;
     })
     .await;
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))

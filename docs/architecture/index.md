@@ -20,7 +20,7 @@
 | --- | --- |
 | [`app::Config`](../../tlab-app/src/app.rs) | 앱이 사용하는 설정 타입을 정의하고 공통 라이브러리의 설정 타입을 조합한다. |
 | `app::Container` | 앱 설정과 구성요소 인스턴스를 소유한다. 생성자에서 앱 수준의 설정 조합을 검증하고 구성요소를 생성한다. |
-| [`main`](../../tlab-app/src/main.rs) | 옵션과 설정을 읽고 tracing을 초기화한 뒤 마이그레이션 또는 서버 실행을 선택한다. |
+| [`main`](../../tlab-app/src/main.rs) | 옵션과 설정을 읽고 tracing을 초기화한 뒤 마이그레이션·초기 관리자 CLI·서버 실행을 선택한다. |
 | [`http`](../../tlab-app/src/http.rs) | Router를 조립하고 두 서버의 실행·종료를 연결한다. |
 | [`app::response`](../../tlab-app/src/app/response.rs) | 정상 JSON·공통 에러 본문·JSON 입력 실패 응답을 생성한다. AppError의 IntoResponse에서 HTTP 상태 변환과 진단 로깅을 수행하며, 응답에는 code·message만 공개한다. |
 | [`app::error`](../../tlab-app/src/app/error.rs) | 공통 AppError { code: AppErrorCode, message, stage, cause }를 제공한다. 각 usecase는 실패 코드·공개 메시지·진단 맥락을 결정한다. |
@@ -51,8 +51,8 @@ flowchart TD
 - [비밀번호 해싱 모듈](../../tlab/src/password.rs): Argon2id·PBKDF2 해시 생성과 PHC 검증을 제공한다. [명세](../specs/password/hash/spec.md)와 [설계](../specs/password/hash/plan.md)를 참조한다.
 - [HTTP 모듈](../../tlab/src/http.rs): 앱이 조립한 Axum Router로 단일 HTTP 또는 HTTPS 리스너를 실행하고 정적 파일 Router 생성과 TLS 재로드를 제공한다. 다중 인스턴스 조정은 앱이 맡는다. [설계](../specs/http/plan.md)와 [검증·리뷰](../specs/http/verification.md)를 참조한다.
 - [앱 구성](../../tlab-app/src/app.rs): 설정을 소유하고 HTTP·HTTPS 설정 검증과 서버 생성을 담당하는 Container를 제공한다. [앱 진입점](../../tlab-app/src/main.rs)은 설정 로딩·tracing 초기화와 실행 경로 선택을, [앱 HTTP 모듈](../../tlab-app/src/http.rs)은 Router 조립과 서버 실행·종료를 맡는다. [앱 HTTP 명세](../specs/http/app/spec.md)를 참조한다. (확인)
-- [로컬 사용자 추가](../../tlab-app/src/auth/slice/create_local_user/usecase.rs): HTTP·usecase·통합 테스트는 slice가 소유하고, [auth/local_account](../../tlab-app/src/auth/local_account.rs)가 Context 기반 준비·연결 없는 해싱·호출자 tx의 계정/identity 저장을 제공한다. 일반 가입과 bootstrap이 공유하며 Container는 정책·해셔·슬롯을 조립한다. 공용 작업의 auth 선언·재노출은 연결했으며 가입 진입 인가는 RBAC 07에 남는다. [설계·검증 결과](../specs/auth/create-local-user/plan.md) 참조. (확인)
-- [RBAC](../../tlab-app/src/rbac/mod.rs): 역할·퍼미션·계정 부여 저장소, 공용 인가·resolver, JWT 역할 발급 및 관리 slice를 구현했다. 06 후속 기준은 일반 계정 조회·부여/회수에 계정 행 잠금을 사용하지 않고 역할 변경 정책은 역할 잠금과 같은 tx의 권한 재조회로 보호한다. bootstrap은 격리된 단독 실행과 현재 카탈로그 batch 저장을 사용한다. 계정 역할·유효 퍼미션 조회의 미존재 계정은 모두 404 계약을 따르며 06 공개 조립·Router·CLI는 남아 있다. [현재 구현·07 인계](../specs/rbac/manage-access/plan.md#rbac-06-current) 참조. (확인)
+- [로컬 사용자 추가](../../tlab-app/src/auth/slice/create_local_user/usecase.rs): HTTP·usecase·통합 테스트는 slice가 소유하고, [auth/local_account](../../tlab-app/src/auth/local_account.rs)가 Context 기반 준비·연결 없는 해싱·호출자 tx의 계정/identity 저장을 제공한다. 일반 가입과 bootstrap이 공유하며 Container는 정책·해셔·슬롯을 조립한다. 공용 작업의 auth 선언·재노출은 연결했으며 가입 진입에서 account.create를 확인하고 JSON·웹 전송 계약을 연결했다. [설계·검증 결과](../specs/auth/create-local-user/plan.md) 참조. (확인)
+- [RBAC](../../tlab-app/src/rbac/mod.rs): 역할·퍼미션·계정 부여 저장소, 공용 인가·resolver, JWT 역할 발급 및 관리 slice를 구현했다. 06 후속 기준은 일반 계정 조회·부여/회수에 계정 행 잠금을 사용하지 않고 역할 변경 정책은 역할 잠금과 같은 tx의 권한 재조회로 보호한다. bootstrap은 격리된 단독 실행과 현재 카탈로그 batch 저장을 사용한다. 계정 역할·유효 퍼미션 조회의 미존재 계정은 모두 404 계약을 따른다. JSON·웹 Router와 stdin bootstrap-admin CLI를 원본 앱에 연결하고 실제 HTTP·CLI를 검증했다. [현재 구현·검증](../specs/rbac/manage-access/plan.md#rbac-07-08-current) 참조. (확인)
 
 ## 개발 가이드
 

@@ -11,7 +11,7 @@ status: accepted
 | --- | --- | --- |
 | realizes | [계정 기능 구상](../account.md) | 계정과 identity 분리, 로컬 가입 |
 | follows | [PLN-PASSWORD-HASH](../../password/hash/plan.md) | 기존 Argon2id 해셔의 생성·저장 계약 |
-| 참고 | [PLN-RBAC-MANAGE-ACCESS](../../rbac/manage-access/plan.md#rbac-06-current) | 06의 공용 준비·저장과 bootstrap 조합, 07 공개 조립 인계 |
+| 참고 | [PLN-RBAC-MANAGE-ACCESS](../../rbac/manage-access/plan.md#rbac-07-08-current) | 공용 준비·저장, bootstrap과 가입 진입 인가 |
 
 ## 목적과 범위
 
@@ -30,7 +30,7 @@ status: accepted
 
 RBAC 06에서 입력 준비·해싱·저장을 `auth/local_account.rs`의 공용 작업으로 추출했다. 일반 가입과 초기 관리자 생성이 같은 작업을 사용하며 각 usecase가 연결·트랜잭션과 완료 조건을 조합한다. 아래는 현재 책임 배치이며 과거 구현·검증 기록은 하단에 보존한다. (확인)
 
-리뷰 수정에서 `auth/mod.rs`의 `local_account` 선언과 입력·준비·해싱·저장 함수 재노출을 연결했다. 원본 workspace fmt·Clippy 및 인증·가입 테스트 64개가 통과했다. RBAC의 계정 조회 재노출·slice 선언·HTTP·CLI 통합은 07에 남는다. 과거 임시 조립 사본의 검증 기록과 이번 원본 검증을 구분한다. (확인)
+리뷰 수정에서 `auth/mod.rs`의 `local_account` 선언과 입력·준비·해싱·저장 함수 재노출을 연결했다. 원본 workspace fmt·Clippy 및 인증·가입 테스트 64개가 통과했다. RBAC 07/08에서 계정 조회 재노출·slice 선언·HTTP·CLI를 연결하고 원본 앱 통합 검증을 완료했다. 과거 임시 조립 사본의 검증 기록과 이번 원본 검증을 구분한다. (확인)
 
 ## 책임과 배치
 
@@ -43,7 +43,7 @@ auth/
 │   ├── mod.rs
 │   └── create_local_user/
 │       ├── mod.rs
-│       ├── route.rs             # HTTP 입력·응답, 향후 RBAC 연결 위치
+│       ├── route.rs             # HTTP 인증·account.create 진입 인가·입력·응답
 │       ├── usecase.rs           # 공용 준비·해싱·저장 호출, 연결·트랜잭션 완료
 │       └── tests.rs             # HTTP·usecase·실제 DB 통합 계약
 ├── local_account.rs             # 준비·해싱·저장 공용 작업, 인라인 해싱 테스트
@@ -56,7 +56,7 @@ auth/
 
 | 주체 | 책임 |
 | --- | --- |
-| slice의 route | JSON 요청 해석·usecase 호출·업무 오류의 HTTP 상태·코드 선택. 향후 인가 검사 연결 |
+| slice의 route | 인증된 Actor의 account.create 인가 후 JSON 요청 해석·usecase 호출·공통 오류 응답 |
 | app/response.rs | 정상 JSON·공통 에러 본문·JSON 추출 실패 응답 생성 |
 | slice의 usecase | DB 연결 획득·반환, 공용 준비·해싱 호출, 저장 tx 시작·commit과 생성 결과 반환 |
 | auth/local_account.rs | Context 기반 정리·검증·이메일 중복 사전 조회, 연결 없는 해싱·슬롯 관리, REGISTERED·LOCAL·priority 0 지정과 호출자 Context의 account/identity 저장 |
@@ -113,9 +113,9 @@ usecase는 공통 `AppError { code: AppErrorCode, message, stage, cause: Option<
 
 ### HTTP 진입점과 접근 제어
 
-HTTP로 노출하고, 향후 RBAC 설계에서 제한된 사용자에게만 이 작업을 허용한다. RBAC의 역할·권한·인증 주체 계약은 후속 설계 범위다. 구현 경로는 `POST /api/v1/accounts/local`이며 execute는 HTTP와 독립적으로 호출할 수 있게 설계한다. (확인: 노출·접근 제한 방향 / 추론: 경로·구조)
+`POST /api/v1/accounts/local`은 Bearer 인증, `POST /web/accounts/local`은 기존 쿠키 인증·자동 갱신·Origin/CSRF 계약을 사용한다. 두 진입점은 검증된 claims의 Actor로 현재 역할 퍼미션을 조회하고 `account.create`를 확인한 뒤 같은 가입 usecase를 호출한다. execute 자체는 HTTP와 독립적인 신뢰된 내부 작업이다. (확인)
 
-권한 검사 연결 위치는 handler가 execute를 호출하기 전이다. 향후 권한 설계에 따라 인증된 호출자와 작업 권한을 검사한 후 입력 처리·해싱·DB 작업으로 진입한다. 지금 임의의 관리자 role·헤더·임시 토큰을 만들거나 RBAC가 구현됐다고 간주하지 않는다. 실제 인가 구현과 401·403 응답 계약은 후속 RBAC 설계에서 추가한다. (추론: 연결 위치 / 확인: 후속 범위)
+인증 실패는 401, 권한 없음은 403/RBAC_FORBIDDEN, resolver 장애는 500/INTERNAL_ERROR다. 인가를 통과한 뒤 기존 입력·해싱·저장 계약을 적용한다. 인증 검사와 업무 진입 인가를 일반 JWT 검증기나 저장소로 이동하지 않는다. 실제 앱 검증은 [RBAC 07/08](../../rbac/manage-access/verification.md)에 기록한다. (확인)
 
 ```json
 {"nickname":"사용자","email":"user@example.com","password":"입력한 비밀번호"}
@@ -135,7 +135,7 @@ HTTP로 노출하고, 향후 RBAC 설계에서 제한된 사용자에게만 이 
 공통 IntoResponse 변환을 거치는 모든 AppError는 stage·cause·code를 한 번 기록한다. InternalError는 ERROR, Busy는 WARN, 입력 오류·인증 실패·이메일 중복 등 나머지는 INFO를 사용한다. 진단 로그는 현재 요청 span을 사용하며 cause는 Debug 형식으로 남긴다. HTTP 응답에는 stage·cause·field를 포함하지 않고, message는 내부 오류 문자열에서 생성하지 않는다. (확인)
 
 
-이 매핑은 현재 HTTP 응답 계약이다. 제한된 사용자만 접근하도록 하는 인가 처리는 후속 RBAC 구현 범위다. HTTP 상태·응답 변환은 handler 책임이며 usecase는 HTTP 타입을 알지 않는다. (추론)
+이 매핑은 인가를 통과한 가입 작업의 HTTP 응답 계약이다. RBAC 07에서 앞의 401·403 진입 계약을 연결했다. HTTP 상태·응답 변환은 handler 책임이며 usecase는 HTTP 타입을 알지 않는다. (추론)
 
 ## 처리 흐름과 트랜잭션
 
@@ -208,7 +208,7 @@ DB 테스트는 전용 스키마에서 현재 migration을 적용하고 격리·
 
 ## 후속 범위
 
-- 실제 RBAC의 인증 주체·권한·401/403 계약. 현재 엔드포인트에는 인증·인가 검사가 없으며 제한된 사용자만 접근하도록 하는 처리는 후속 구현이다. (확인)
+- RBAC 인증·account.create·401/403 계약은 07/08에서 연결·검증했다. 후속 권한 정책 변경 시 RBAC 명세와 함께 검토한다. (확인)
 - 비밀번호 강도 정책은 PasswordPolicy 구현체 교체로 확장한다. 현재 기본값은 빈 문자열 거부다. (확인)
 - 이메일 소유 확인·활성 전환·SNS 가입·수단 연결·우선순위 변경은 후속 흐름이다. (확인)
 
@@ -359,7 +359,7 @@ provider·status의 String 사용은 리뷰 중 논의에 따라 Rust enum으로
 ### RBAC 06: 로컬 계정 준비·해싱·저장 공용화
 
 - 일반 가입과 bootstrap이 공유하도록 `auth/local_account.rs`에 준비·해싱·저장을 추출했다. 사용자 피드백에 따라 준비는 호출자 Context를 받고, 연결 반환 후 별도 해싱을 수행한다. usecase는 공통 AppResult를 사용하고 연결·저장 tx·commit을 소유한다. 기존 이메일 재시도, 비밀번호 원문 유지, 해싱 슬롯·취소 및 저장 원자성 계약은 유지했다. (확인)
-- 준비의 Context 전환 후 임시 조립 사본에서 기존 인증·가입 64개, 실제 소스 harness의 bootstrap·가입 관련 3개가 통과했다. 이후 batch INSERT·bootstrap advisory lock 제거에 대한 재검증은 [RBAC plan](../../rbac/manage-access/plan.md#rbac-06-current) 기록을 따른다. 실제 관리 HTTP·CLI와 원본 전체 앱 통과를 뜻하지 않는다. (확인)
+- 준비의 Context 전환 후 임시 조립 사본에서 기존 인증·가입 64개, 실제 소스 harness의 bootstrap·가입 관련 3개가 통과했다. 이후 batch INSERT·bootstrap advisory lock 제거에 대한 재검증은 [RBAC plan](../../rbac/manage-access/plan.md#rbac-07-08-current) 기록을 따른다. 실제 관리 HTTP·CLI와 원본 전체 앱 통과를 뜻하지 않는다. (확인)
 - 07은 `auth/mod.rs`에 `local_account`를 선언하고 `LocalAccountInput`, `prepare_local_account`, `hash_local_account`, `insert_prepared_local_account`를 재노출해야 한다. 이번 문서 현행화는 연결표·책임·처리 흐름을 현재 소스와 대조했으며 코드·테스트 실행은 추가하지 않았다. (확인)
 
 ### 리뷰 수정: auth 공용 작업 연결

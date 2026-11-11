@@ -72,48 +72,13 @@ use rbac::{
 };
 use std::{future::Future, path::Path};
 
+mod support;
 async fn isolated<F, Fut>(scenario: F)
 where
     F: FnOnce(Database) -> Fut + Send + 'static,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    let url = std::env::var("TLAB_TEST_DATABASE_URL").expect("set TLAB_TEST_DATABASE_URL");
-    let admin = Database::new(&tlab::sqlxdb::Config {
-        url: url.clone(),
-        max_connections: 1,
-    })
-    .await
-    .unwrap();
-    let schema = format!("tlab_rbac_test_{}", uuid::Uuid::new_v4().simple());
-    let mut conn = admin.conn().await.unwrap();
-    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
-        .execute(conn.context().backend())
-        .await
-        .unwrap();
-    let separator = if url.contains('?') { '&' } else { '?' };
-    let scoped = format!("{url}{separator}options=-csearch_path%3D{schema}");
-    let result = tokio::spawn(async move {
-        let db = Database::new(&tlab::sqlxdb::Config {
-            url: scoped,
-            max_connections: 4,
-        })
-        .await
-        .unwrap();
-        tlab::migration::run(
-            &db,
-            Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations")),
-            &[],
-        )
-        .await
-        .unwrap();
-        scenario(db).await;
-    })
-    .await;
-    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
-        .execute(conn.context().backend())
-        .await
-        .unwrap();
-    result.unwrap();
+    support::isolated_with_url(|db, _url| scenario(db)).await;
 }
 fn code(value: &str) -> PermissionCode {
     PermissionCode(value.to_owned())
@@ -613,6 +578,9 @@ async fn management_rechecks_delegation_versions_and_atomicity() {
         assert_eq!(error.code, app::error::AppErrorCode::RbacForbidden);
         let mut conn = db.conn().await.unwrap();
         assert!(!role::list_all(&mut conn.context()).await.unwrap().iter().any(|role| role.name == "must-not-exist"));
+        // Keep management permission so only account status can reject below.
+        sqlx::query("DROP TRIGGER reject_role_permission ON tlab_rbac_role_permission").execute(conn.context().backend()).await.unwrap();
+        role_permission::insert(&mut conn.context(), &NewRolePermission { role_id: manager.id, permission_code: code("rbac.role.manage") }).await.unwrap();
         sqlx::query("UPDATE tlab_account SET status='WITHDRAWN', withdrawn_at=CURRENT_TIMESTAMP WHERE id=$1")
             .bind(account).execute(conn.context().backend()).await.unwrap();
         drop(conn);

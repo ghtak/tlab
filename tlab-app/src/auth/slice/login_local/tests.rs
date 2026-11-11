@@ -158,6 +158,25 @@ async fn verifier_errors_and_panics_are_internal_and_release_capacity() {
 }
 
 async fn request(container: Arc<Container>, path: &str, payload: String) -> (StatusCode, Value) {
+    if path == "/api/v1/accounts/local" {
+        let result = crate::auth::slice::create_local_user::execute(
+            &container.database,
+            container.passwd_policy.as_ref(),
+            container.passwd_hasher.clone(),
+            container.passwd_hash_slots.clone(),
+            serde_json::from_str(&payload).unwrap(),
+        )
+        .await;
+        let response = match result {
+            Ok(created) => crate::app::response::success(StatusCode::CREATED, created),
+            Err(error) => axum::response::IntoResponse::into_response(error),
+        };
+        let status = response.status();
+        return (
+            status,
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap(),
+        );
+    }
     let response = crate::auth::router()
         .with_state(container)
         .oneshot(
@@ -653,7 +672,7 @@ async fn wrong_password_and_missing_account_are_indistinguishable() {
 async fn busy_and_invalid_http_requests() {
     isolated(|url| async move {
         let (container, _created, _id) = fixture(url).await;
-        // The same process-wide permits are consumed by both request handlers.
+        // Login and the signup operation consume the same process-wide permits.
         let permits = container
             .passwd_hash_slots
             .clone()

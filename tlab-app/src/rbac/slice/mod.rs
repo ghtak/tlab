@@ -1,7 +1,12 @@
+pub(crate) mod bootstrap_admin;
 pub(crate) mod create_role;
 pub(crate) mod delete_role;
+pub(crate) mod get_effective_permissions;
+pub(crate) mod grant_account_role;
+pub(crate) mod list_account_roles;
 pub(crate) mod list_permissions;
 pub(crate) mod list_roles;
 pub(crate) mod replace_role_permissions;
+pub(crate) mod revoke_account_role;
 mod service;
 pub(crate) mod update_role;

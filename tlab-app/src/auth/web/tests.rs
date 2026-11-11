@@ -429,17 +429,14 @@ async fn web_login_issues_secure_cookies_after_common_issuance() {
         let container = container(database).await;
         let app = app(container.clone());
         let credentials = json!({"email":"member@example.test", "password":"secret"});
-        let req = HttpRequest::post("/api/v1/accounts/local")
-            .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from(
-                json!({"email":"member@example.test", "password":"secret", "nickname":"member"})
-                    .to_string(),
-            ))
-            .unwrap();
-        assert_eq!(
-            app.clone().oneshot(req).await.unwrap().status(),
-            StatusCode::CREATED
-        );
+        crate::auth::test_support::create_local_user(
+            &container,
+            serde_json::from_value(
+                json!({"email":"member@example.test", "password":"secret", "nickname":"member"}),
+            )
+            .unwrap(),
+        )
+        .await;
         let req = HttpRequest::post("/web/auth/local")
             .header(header::ORIGIN, container.config.auth.web.origin.as_str())
             .header(header::CONTENT_TYPE, "application/json")
@@ -807,7 +804,7 @@ async fn oversized_web_login_preserves_issued_session_and_refresh_preserves_exis
                     .body(Body::from(payload.to_string())).unwrap();
                 app.clone().oneshot(req)
             };
-            assert_eq!(send("/api/v1/accounts/local", json!({"email": email, "password": "secret", "nickname": nickname})).await.unwrap().status(), StatusCode::CREATED);
+            crate::auth::test_support::create_local_user(&container, serde_json::from_value(json!({"email": email, "password": "secret", "nickname": nickname})).unwrap()).await;
             let count = async || {
                 let mut conn = container.database.conn().await.unwrap();
                 sqlx::query_scalar::<_, i64>("SELECT count(*) FROM tlab_auth_refresh_token")

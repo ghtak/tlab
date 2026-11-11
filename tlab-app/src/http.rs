@@ -11,15 +11,7 @@ mod tests;
 
 pub async fn run(container: Container) -> tlab::Result<()> {
     let container = Arc::new(container);
-    let mut router: Router<Arc<Container>> = Router::new()
-        .merge(crate::auth::router())
-        .merge(crate::auth::web::router(container.clone()))
-        .route("/health", get(|| async { "ok" }))
-        .route("/db_status", get(db_status));
-    if let Some(files) = &container.config.server.static_files {
-        router = router.merge(files.router()?);
-    }
-    let router: Router = trace_requests(router).with_state(container.clone());
+    let router = router(container.clone())?;
 
     tracing::info!("application starting");
     tokio::try_join!(
@@ -35,6 +27,19 @@ pub async fn run(container: Container) -> tlab::Result<()> {
         }
     )?;
     Ok(())
+}
+
+pub(crate) fn router(container: Arc<Container>) -> tlab::Result<Router> {
+    let mut router: Router<Arc<Container>> = Router::new()
+        .merge(crate::auth::router())
+        .nest("/api/v1", crate::rbac::router())
+        .merge(crate::auth::web::router(container.clone()))
+        .route("/health", get(|| async { "ok" }))
+        .route("/db_status", get(db_status));
+    if let Some(files) = &container.config.server.static_files {
+        router = router.merge(files.router()?);
+    }
+    Ok(trace_requests(router).with_state(container))
 }
 
 pub(crate) fn trace_requests<S: Clone + Send + Sync + 'static>(router: Router<S>) -> Router<S> {

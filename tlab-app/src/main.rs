@@ -1,5 +1,7 @@
 mod app;
 mod auth;
+#[path = "rbac/slice/bootstrap_admin/cli.rs"]
+mod bootstrap_admin_cli;
 mod http;
 mod migrations;
 mod options;
@@ -16,10 +18,27 @@ use tlab::Error;
 
 #[tokio::main]
 async fn main() -> tlab::Result<()> {
+    let options = options::Options::parse(std::env::args_os().skip(1))?;
     let config = load_config()?;
+    if let Some(options) = options.bootstrap_admin {
+        // No tracing subscriber, JWT/TLS preparation, migration or listeners.
+        match bootstrap_admin_cli::run(&config, options).await {
+            Ok(created) => println!(
+                "{}",
+                serde_json::json!({"account_id": created.account_id, "role_id": created.role_id})
+            ),
+            Err(error) => {
+                eprintln!(
+                    "{}",
+                    serde_json::json!({"code": error.code, "message": error.message})
+                );
+                std::process::exit(1);
+            }
+        }
+        return Ok(());
+    }
     let _tracing_guard = tlab::tracing::initialize(&config.tracing)?;
 
-    let options = options::Options::parse(std::env::args_os().skip(1))?;
     if let Some(path) = options.migrate {
         let database = app::db::Database::new(&config.database).await?;
         tlab::migration::run(&database, &path, migrations::CODE).await?;

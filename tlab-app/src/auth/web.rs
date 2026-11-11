@@ -98,13 +98,17 @@ impl VerifiedWebClaims {
 }
 
 pub(crate) fn router(container: Arc<Container>) -> Router<Arc<Container>> {
-    let protected =
-        Router::new()
-            .route("/web/auth/me", get(me))
-            .route_layer(middleware::from_fn_with_state(
-                container.clone(),
-                authenticate,
-            ));
+    let protected = Router::new()
+        .route("/web/auth/me", get(me))
+        .nest("/web", crate::rbac::router())
+        .route(
+            "/web/accounts/local",
+            post(slice::create_local_user::create_local_user),
+        )
+        .route_layer(middleware::from_fn_with_state(
+            container.clone(),
+            authenticate,
+        ));
     Router::new()
         .merge(protected)
         .route("/web/auth/local", post(slice::login_local::web_login))

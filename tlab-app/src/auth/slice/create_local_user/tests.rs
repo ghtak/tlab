@@ -55,10 +55,24 @@ async fn passwd_policy_preserves_whitespace_and_can_be_replaced() {
 }
 
 async fn request(container: Arc<Container>, payload: &str) -> (StatusCode, Value) {
+    let mut conn = container.database.conn().await.unwrap();
+    let (account_id, role_id): (i64, i64) = sqlx::query_as("SELECT ar.account_id, ar.role_id FROM tlab_rbac_account_role ar JOIN tlab_rbac_role r ON r.id=ar.role_id WHERE r.name='bootstrap-admin'")
+        .fetch_one(conn.context().backend()).await.unwrap();
+    drop(conn);
+    let token = container
+        .access_issuer
+        .issue(
+            &account_id.to_string(),
+            uuid::Uuid::new_v4(),
+            json!({"role_ids":[role_id]}).as_object().unwrap().clone(),
+            chrono::Utc::now().timestamp() as u64,
+        )
+        .unwrap();
     let response = crate::auth::router()
         .with_state(container)
         .oneshot(
             Request::post("/api/v1/accounts/local")
+                .header("authorization", format!("Bearer {}", token.expose_secret()))
                 .header("content-type", "application/json")
                 .body(Body::from(payload.to_owned()))
                 .unwrap(),
@@ -327,7 +341,22 @@ async fn check_local_user_contracts(test_url: String) {
     .execute(conn.context().backend())
     .await
     .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/0003_create_tlab_rbac.sql"
+    ))
+    .execute(conn.context().backend())
+    .await
+    .unwrap();
     drop(conn);
+    crate::rbac::slice::bootstrap_admin::usecase::execute(
+        &container.database,
+        container.passwd_policy.as_ref(),
+        container.passwd_hasher.clone(),
+        container.passwd_hash_slots.clone(),
+        command("bootstrap@example.test"),
+    )
+    .await
+    .unwrap();
     check_enum_mappings(&container.database).await;
     let payload = json!({"nickname":" member ", "email":" User@example.com ", "password":" password with spaces "}).to_string();
     let (status, body) = request(container.clone(), &payload).await;
@@ -513,7 +542,7 @@ async fn check_local_user_contracts(test_url: String) {
         .fetch_one(conn.context().backend())
         .await
         .unwrap();
-    assert_eq!(account_count, 2);
+    assert_eq!(account_count, 3);
     drop(conn);
 
     // Repository CRUD accepts provider values; the service owns the LOCAL intent.
