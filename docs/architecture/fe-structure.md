@@ -31,7 +31,9 @@
 | [tsconfig.json](../../tlab-app-ui/tsconfig.json) | 타입 검사와 `@/*` 경로 |
 | [components.json](../../tlab-app-ui/components.json) | shadcn/ui 스타일·테마·소스 경로 |
 | [main.tsx](../../tlab-app-ui/src/main.tsx) | React 진입과 Query·Router 인스턴스 조립 |
-| [index.css](../../tlab-app-ui/src/index.css) | Tailwind CSS와 테마 색상 |
+| [index.css](../../tlab-app-ui/src/index.css) | Tailwind와 공통 스타일을 가져오는 진입점 |
+| [theme.css](../../tlab-app-ui/src/styles/theme.css) | 의미 기반 토큰·라이트/다크 값·Tailwind 유틸리티 연결 |
+| [base.css](../../tlab-app-ui/src/styles/base.css) | body 등 전역 기본 스타일 |
 | [button.tsx](../../tlab-app-ui/src/components/ui/button.tsx) · [utils.ts](../../tlab-app-ui/src/lib/utils.ts) | 공통 버튼과 스타일 유틸리티 |
 
 새 URL은 `src/routes`에 등록하고 화면은 아래 기능별 배치 기준에 따라 연결한다. `__root.tsx`는 공통 루트, `index.tsx`는 `/` 경로를 담당한다. `src/routeTree.gen.ts`는 개발 서버·빌드에서 생성하므로 직접 수정하지 않는다. `index.html`은 브라우저 진입 HTML이다. (확인·제안)

@@ -4,6 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>tlab</title>
+    <script>
+      // Apply before the first paint; React takes over theme changes after mount.
+      (() => {
+        let theme = 'system'
+        try {
+          const saved = localStorage.getItem('tlab.theme')
+          if (saved === 'light' || saved === 'dark') theme = saved
+        } catch {}
+        document.documentElement.dataset.theme = theme
+        document.documentElement.classList.toggle('dark', theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

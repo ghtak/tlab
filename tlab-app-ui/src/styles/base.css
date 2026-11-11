@@ -1,0 +1,7 @@
+@layer base {
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    @apply bg-background text-foreground;
+  }
+}

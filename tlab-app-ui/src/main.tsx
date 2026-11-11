@@ -7,6 +7,7 @@ import { createApiClient } from './lib/api'
 import { createAuthApi } from './feature/auth/services/auth-api'
 import { createSession } from './feature/auth/services/session'
 import { sessionKey } from './feature/auth/services/session'
+import { ThemeProvider } from './components/theme-provider'
 import './index.css'
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false, gcTime: 0 } } })
@@ -34,8 +35,10 @@ declare module '@tanstack/react-router' {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </ThemeProvider>
   </React.StrictMode>,
 )
