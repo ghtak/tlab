@@ -1,65 +1,83 @@
-# 아키텍처
+# 아키텍처 탐색 가이드
 
-## 프로젝트 역할과 범위
+LLM이 작업 대상의 책임과 경계를 파악하고 관련 코드·개발 가이드를 찾아가기 위한 문서다.
+아래 영역과 연결은 현재 소스코드를 기준으로 정리했다. 상세 API·타입·정책·실행 순서는 링크한 원본에서 확인한다. (확인)
 
-워크스페이스는 공통 라이브러리 [`tlab`](../../tlab/Cargo.toml), 실행 애플리케이션 [`tlab-app`](../../tlab-app/Cargo.toml), React 프런트엔드 [`tlab-app-ui`](../../tlab-app-ui/package.json)로 구성된다. UI는 Vite로 개발·빌드하며 현재 서버와 별도로 실행된다. (확인)
+## 전체 구성과 경계
 
-- `tlab`은 에러 처리, 설정 로딩, DB, tracing, 키파일 관리 등 재사용 가능한 기반 기능을 제공한다.
-- `tlab-app`은 `tlab`의 기능을 조합하고 실행 환경을 구성한다.
-- 의존 방향은 `tlab-app → tlab`이며, `tlab`은 앱에 의존하지 않는다.
-- 공통 기능은 `tlab`이 제공하고, 설정 선택과 초기화·종료 생명주기는 앱이 관리한다. (확인)
+| 영역 | 소유하는 책임 | 탐색 시작점 |
+| --- | --- | --- |
+| `tlab` | 앱과 독립적으로 재사용하는 기반 기능. 호출자가 선택한 설정과 입력으로 동작한다. | [공개 모듈](../../tlab/src/lib.rs) · [의존성](../../tlab/Cargo.toml) |
+| `tlab-app` | 백엔드의 업무 정책·저장 모델·시나리오와 실행 환경. 기반 기능을 조합하고 앱의 생명주기를 관리한다. | [진입점](../../tlab-app/src/main.rs) · [의존성](../../tlab-app/Cargo.toml) |
+| `tlab-app-ui` | 브라우저의 화면·사용자 작업·서버 상태와 라우팅. HTTP로 백엔드 기능을 사용한다. | [진입점](../../tlab-app-ui/src/main.tsx) · [의존성·스크립트](../../tlab-app-ui/package.json) |
 
-이 개요에는 역할·책임·의존 방향을 정리한다.
-상세 계약과 결정 근거는 필요할 때 기능별 문서로 구성하고 여기에서 참조한다. (확인)
-
-## 앱 구성과 실행
-
-`tlab-app`은 `app::Container`에서 앱에 필요한 구성요소를 조립하고 소유하며, `main`에서 실행 경로를 선택한다. HTTP 모듈은 서버를 연결해 실행한다. 재사용 기능의 구현은 `tlab`에 두고 앱별 조합과 생명주기는 `tlab-app`에서 관리한다. (확인)
-
-| 위치 | 책임 |
-| --- | --- |
-| [`app::Config`](../../tlab-app/src/app.rs) | 앱이 사용하는 설정 타입을 정의하고 공통 라이브러리의 설정 타입을 조합한다. |
-| `app::Container` | 앱 설정과 구성요소 인스턴스를 소유한다. 생성자에서 앱 수준의 설정 조합을 검증하고 구성요소를 생성한다. |
-| [`main`](../../tlab-app/src/main.rs) | 옵션과 설정을 읽고 초기 관리자 CLI를 먼저 분기한다. 나머지 경로는 tracing 초기화 후 마이그레이션·서버 실행을 선택한다. |
-| [`http`](../../tlab-app/src/http.rs) | Router를 조립하고 두 서버의 실행·종료를 연결한다. |
-| [`app::response`](../../tlab-app/src/app/response.rs) | 정상 JSON·공통 에러 본문·JSON 입력 실패 응답을 생성한다. AppError의 IntoResponse에서 HTTP 상태 변환과 진단 로깅을 수행하며, 응답에는 code·message만 공개한다. |
-| [`app::error`](../../tlab-app/src/app/error.rs) | 공통 AppError { code: AppErrorCode, message, stage, cause }를 제공한다. 각 usecase는 실패 코드·공개 메시지·진단 맥락을 결정한다. |
-| [`tlab`](../../tlab/src/lib.rs) | 개별 구성요소의 설정·생성·실행 API를 제공한다. 앱의 Container나 구성요소 간 조합을 알지 않는다. |
-
-위 책임은 현재 코드에서 확인한 구분이다. tracing guard는 main이 보관해 실행과 종료 동안 로그 출력을 유지한다. (확인)
+Rust 워크스페이스는 `tlab`과 `tlab-app`으로 구성되며, 코드 의존 방향은 `tlab-app → tlab`이다.
+UI는 별도 Node 프로젝트이며 백엔드의 Rust 모듈을 직접 사용하지 않는다.
+UI와 백엔드의 연결은 `/web/v1` 웹 API를 사용하고, 별도 클라이언트를 위한 Bearer API는 `/api/v1`에 조립한다. (확인)
 
 ```mermaid
-flowchart TD
-    M[main: 설정 로딩·tracing 초기화] --> C[app::Container::new: 설정 검증·구성요소 생성]
-    C --> O[Container: 설정·인스턴스 소유]
-    O --> R[http: Router 조립·실행]
-    R --> S[http: 종료 신호 전달·완료 대기]
-    C --> L[tlab: 재사용 구성요소 제공]
+flowchart LR
+    UI[tlab-app-ui: 화면과 브라우저 상태] -->|웹 API| BE[tlab-app: 업무 기능과 앱 조립]
+    Client[API 클라이언트] -->|Bearer API| BE
+    BE -->|코드 의존| Lib[tlab: 재사용 기반]
+    BE --> DB[(PostgreSQL)]
 ```
 
-설정은 Container로 이동하며, HTTP 모듈은 `container.config`를 참조한다. Container 생성은 실행 준비까지 담당하고, 실제 리스너 실행과 종료 요청은 HTTP 모듈에서 수행한다. (확인)
+## 공통 기반: tlab
 
-구성요소를 추가할 때도 앱별 생성과 의존성 연결은 Container에 모으고, main은 실행 경로를 선택한다. 개별 기능의 설정 정책과 실행 계약은 해당 명세에서 다룬다. (추론)
+공통 라이브러리는 설정 로딩·DB 접근·서버 실행 등의 수단을 제공한다.
+앱의 계정·역할·인증 시나리오와 Router 조합은 `tlab-app`이 소유한다.
+기반 기능을 변경할 때는 [공개 모듈](../../tlab/src/lib.rs)에서 해당 구현으로 이동하고 앱의 사용처도 함께 확인한다. (확인)
 
-## 현재 구현 상태
+| 관심 영역 | 코드에서 확인할 경계 | 원본 |
+| --- | --- | --- |
+| 설정·오류·진단 | 설정을 읽는 방식, 공통 오류와 로깅 기반. 앱별 설정 선택과 업무 오류의 의미는 호출자가 정한다. | [config](../../tlab/src/config.rs) · [error](../../tlab/src/error.rs) · [tracing](../../tlab/src/tracing.rs) |
+| 저장 기반 | 연결·트랜잭션 context와 마이그레이션 실행. 업무 SQL·스키마와 작업의 트랜잭션 범위는 앱이 정한다. | [sqlxdb](../../tlab/src/sqlxdb.rs) · [migration](../../tlab/src/migration.rs) |
+| 전송·암호 기반 | 단일 HTTP/HTTPS 서버, 키파일과 비밀번호 해싱. 서버 간 조정·인증 정책·토큰 수명은 앱이 정한다. | [http](../../tlab/src/http.rs) · [keyfiles](../../tlab/src/keyfiles.rs) · [password](../../tlab/src/password.rs) |
 
-- [에러 모듈](../../tlab/src/error.rs): 공통 에러 타입과 변환을 제공한다. 상세는 [에러 설계](../specs/error/plan.md)를 참조한다.
-- [설정 모듈](../../tlab/src/config.rs): 파일과 환경변수를 병합해 호출자가 정의한 설정 타입으로 읽는다. 상세는 [설정 로딩 명세](../specs/config/load/spec.md)를 참조한다.
-- [DB 모듈](../../tlab/src/sqlxdb.rs): SQLx 기반의 DB 접근과 트랜잭션 관리를 제공한다. 상세는 [DB 설계](../specs/database/plan.md)를 참조한다.
-- [tracing 모듈](../../tlab/src/tracing.rs): 콘솔·파일 출력과 프로세스 전역 tracing 초기화를 제공한다.
-- [키파일 모듈](../../tlab/src/keyfiles.rs): 소비자가 포함하는 파일 설정 타입과 TLS·Ed25519 자료의 로드·개발용 생성을 제공한다. 상세는 [키파일 관리 명세](../specs/keyfiles/spec.md)를 참조한다.
-- [비밀번호 해싱 모듈](../../tlab/src/password.rs): Argon2id·PBKDF2 해시 생성과 PHC 검증을 제공한다. [명세](../specs/password/hash/spec.md)와 [설계](../specs/password/hash/plan.md)를 참조한다.
-- [HTTP 모듈](../../tlab/src/http.rs): 앱이 조립한 Axum Router로 단일 HTTP 또는 HTTPS 리스너를 실행하고 정적 파일 Router 생성과 TLS 재로드를 제공한다. 다중 인스턴스 조정은 앱이 맡는다. [설계](../specs/http/plan.md)와 [검증·리뷰](../specs/http/verification.md)를 참조한다.
-- [앱 구성](../../tlab-app/src/app.rs): 설정을 소유하고 HTTP·HTTPS 설정 검증과 서버 생성을 담당하는 Container를 제공한다. [앱 진입점](../../tlab-app/src/main.rs)은 설정 로딩·tracing 초기화와 실행 경로 선택을, [앱 HTTP 모듈](../../tlab-app/src/http.rs)은 Router 조립과 서버 실행·종료를 맡는다. [앱 HTTP 명세](../specs/http/app/spec.md)를 참조한다. (확인)
-- [로컬 사용자 추가](../../tlab-app/src/auth/slice/create_local_user/usecase.rs): HTTP·usecase·통합 테스트는 slice가 소유하고, [auth/local_account](../../tlab-app/src/auth/local_account.rs)가 Context 기반 준비·연결 없는 해싱·호출자 tx의 계정/identity 저장을 제공한다. 일반 가입과 bootstrap이 공유하며 Container는 정책·해셔·슬롯을 조립한다. 공용 작업의 auth 선언·재노출은 연결했으며 가입 진입에서 account.create를 확인하고 JSON·웹 전송 계약을 연결했다. [설계·검증 결과](../specs/auth/create-local-user/plan.md) 참조. (확인)
-- [RBAC](../../tlab-app/src/rbac/mod.rs): 역할·퍼미션·계정 부여 저장소, 공용 인가·resolver, JWT 역할 발급 및 관리 slice를 구현했다. 06 후속 기준은 일반 계정 조회·부여/회수에 계정 행 잠금을 사용하지 않고 역할 변경 정책은 역할 잠금과 같은 tx의 권한 재조회로 보호한다. bootstrap은 격리된 단독 실행과 현재 카탈로그 batch 저장을 사용한다. 계정 역할·유효 퍼미션 조회의 미존재 계정은 모두 404 계약을 따른다. JSON·웹 Router와 stdin bootstrap-admin CLI를 원본 앱에 연결하고 실제 HTTP·CLI를 검증했다. [현재 구현·검증](../specs/rbac/manage-access/plan.md#rbac-07-08-current) 참조. (확인)
+## 백엔드: tlab-app
 
-## 개발 가이드
+백엔드는 실행·조립 영역과 업무 feature 영역으로 나뉜다.
+`main`은 실행 경로를 선택하고, `app`은 공유 설정·인스턴스를 소유하며, `http`는 외부 요청과 feature를 연결한다.
+업무 feature는 각자의 정책·데이터와 시나리오를 소유한다. (확인)
 
-설계·구현·테스트 시 참조하는 가이드를 정리한다.
-`create-plan`으로 설계 문서를 작성할 때도 아래 가이드를 읽고 구현 방향과 검증할 계약·기대 결과에 반영한다. (확인)
+| 영역 | 책임과 경계 | 탐색 시작점 |
+| --- | --- | --- |
+| 실행 진입 | 설정과 옵션을 읽고 서버·마이그레이션·초기 관리자 CLI 실행을 선택한다. | [main](../../tlab-app/src/main.rs) · [options](../../tlab-app/src/options.rs) |
+| 앱 조립·공통 계약 | 앱 설정 검증과 공유 인스턴스 조립·소유, 앱 오류와 HTTP 응답 변환을 담당한다. | [app](../../tlab-app/src/app.rs) · [error](../../tlab-app/src/app/error.rs) · [response](../../tlab-app/src/app/response.rs) |
+| HTTP 연결 | API·웹 전송 경로, 공유 업무 Router와 정적 파일을 조립하고 서버 실행·종료를 조정한다. | [http](../../tlab-app/src/http.rs) · [api](../../tlab-app/src/http/api.rs) · [web](../../tlab-app/src/http/web.rs) |
+| 인증 `auth` | 계정·인증 수단, 로그인·세션·토큰과 웹 쿠키 인증을 소유한다. 외부에서 사용할 계약은 모듈 진입점에 노출한다. | [모듈 계약](../../tlab-app/src/auth/mod.rs) · [경로 연결](../../tlab-app/src/auth/route.rs) · [시나리오 목록](../../tlab-app/src/auth/slice/mod.rs) |
+| 인가 `rbac` | 역할·퍼미션·계정 역할 부여와 권한 판단, 관리 시나리오를 소유한다. 인증된 주체의 역할을 해석해 권한을 판단한다. | [모듈 계약](../../tlab-app/src/rbac/mod.rs) · [경로 연결](../../tlab-app/src/rbac/route.rs) · [시나리오 목록](../../tlab-app/src/rbac/slice/mod.rs) |
+| 스키마·초기화 | 앱의 SQL 스키마와 코드 마이그레이션 등록, 초기 관리자 생성 진입을 제공한다. | [SQL migrations](../../tlab-app/migrations) · [코드 등록](../../tlab-app/src/migrations.rs) · [관리자 CLI](../../tlab-app/src/rbac/slice/bootstrap_admin/cli.rs) |
 
-- [구현 가이드](guide-impl.md): 기존 구조와 동작을 존중하며 필요한 범위만 구현·수정하고 실행으로 검증하는 원칙.
-- [백엔드 기능 개발 가이드](guide-be-feature-dev.md): 시나리오별 지역성을 높이는 Vertical Slice Architecture와 usecase·service·repository·route의 책임 구분.
-- [프런트엔드 기능 개발 가이드](guide-fe-feature-dev.md): 기능·화면별 지역성, 공통 lib·components와 routes의 책임, 필요한 만큼 분리하는 배치 기준.
-- [테스트·검증 가이드](guide-test.md): 요구사항과 계약에 따른 기대 결과, 테스트 재사용과 격리, 변경과 위험에 맞는 검증 원칙. (확인)
+인증과 인가를 함께 변경할 때는 `auth`의 [인증 주체 추출](../../tlab-app/src/auth/extractor.rs)과
+`rbac`의 [주체 해석](../../tlab-app/src/rbac/claims.rs)·[권한 판단](../../tlab-app/src/rbac/authorization.rs)을 연결해 읽는다.
+HTTP 전송별 보호 범위는 앱의 `http`가 선택하고, 쿠키·요청 인증 처리는 [auth/web](../../tlab-app/src/auth/web.rs)이 제공한다.
+각 feature 내부의 시나리오·공용 코드 배치는 [백엔드 기능 개발 가이드](guide-be-feature-dev.md)를 따른다. (확인)
+
+## 프런트엔드: tlab-app-ui
+
+프런트엔드는 앱 조립·URL 연결·기능별 화면과 처리·공통 기반 및 UI로 나뉜다.
+서버의 인증·인가 정책은 백엔드가 담당하고, UI는 API 결과를 바탕으로 화면 진입과 사용자 상태를 관리한다. (확인)
+
+| 영역 | 책임과 경계 | 탐색 시작점 |
+| --- | --- | --- |
+| 앱 조립 | API 클라이언트·QueryClient·세션·Router와 공통 Provider를 생성하고 연결한다. | [main.tsx](../../tlab-app-ui/src/main.tsx) |
+| URL·화면 연결 | URL별 진입 조건과 화면 연결, 공통 루트 표현을 담당한다. | [routes](../../tlab-app-ui/src/routes) |
+| 업무 feature | 기능별 화면·요청 계약·상태 처리를 소유한다. 현재 auth는 인증 API와 세션을, dashboard는 대시보드 화면을 제공한다. | [feature](../../tlab-app-ui/src/feature) · [auth API](../../tlab-app-ui/src/feature/auth/services/auth-api.ts) · [session](../../tlab-app-ui/src/feature/auth/services/session.ts) |
+| 공통 기반·UI | 기능별 정책과 분리된 HTTP 기반, 재사용 UI·테마·스타일을 제공한다. | [lib](../../tlab-app-ui/src/lib) · [components](../../tlab-app-ui/src/components) · [styles](../../tlab-app-ui/src/styles) |
+| 개발·빌드 연결 | 플러그인·별칭·개발 proxy와 실행 명령을 관리한다. | [Vite 설정](../../tlab-app-ui/vite.config.ts) · [UI README](../../tlab-app-ui/README.md) |
+
+기능·화면별 코드 배치와 상태 소유권은 [프런트엔드 기능 개발 가이드](guide-fe-feature-dev.md)를 따른다.
+인증 연결을 변경할 때는 UI의 auth 서비스와 백엔드의 웹 전송 경계를 함께 확인한다.
+세션·인증의 상세 계약과 변경 근거는 [웹 UI API와 세션 설계](../specs/auth/web-ui-session/plan.md)에서 찾는다. (확인)
+
+## 작업할 때 참조하는 순서
+
+1. 위 영역에서 변경할 책임의 소유자를 찾고, 해당 진입점과 직접 호출하는 코드를 읽는다. 공용 계약을 바꾸면 사용처를 검색해 영향 범위를 확인한다.
+2. [구현 가이드](guide-impl.md)와 대상의 [백엔드](guide-be-feature-dev.md) 또는 [프런트엔드](guide-fe-feature-dev.md) 기능 개발 가이드를 읽는다. 설계 문서를 작성할 때도 같은 경계와 배치 기준을 적용한다.
+3. 기능의 정책·예외·결정 근거가 필요하면 [docs/specs](../specs)에서 대상 기능의 명세·설계를 찾고 현재 코드와 대조한다. 구현·검증 기록은 대상과 시점을 확인해 읽는다.
+4. [테스트·검증 가이드](guide-test.md)에 따라 관련 테스트를 찾는다. 기반 기능은 [tlab/tests](../../tlab/tests), 백엔드는 대상 모듈·slice의 테스트, UI는 기능 인접 테스트와 [브라우저 테스트](../../tlab-app-ui/tests)에서 시작한다. 실행 방법은 [루트 README](../../README.md)·[justfile](../../justfile)·[UI README](../../tlab-app-ui/README.md)를 참조한다. (추론: 탐색 절차)
+
+이 문서는 상위 책임·연결·탐색 경로를 유지한다. 함수 계약과 정책의 세부 내용은 코드·명세에,
+구현 완료 여부와 검증 결과는 해당 작업 기록에 남긴다. (추론: 문서 관리 기준)
