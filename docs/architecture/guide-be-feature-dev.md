@@ -1,4 +1,4 @@
-# 앱 개발 구조: Vertical Slice Architecture
+# 백엔드 기능 개발 가이드
 
 ## 목적과 범위
 

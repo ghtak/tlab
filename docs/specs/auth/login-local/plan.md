@@ -11,7 +11,7 @@ status: accepted
 | --- | --- | --- |
 | realizes | [계정 기능 구상](../account.md) | 로컬 인증으로 연결된 계정에 접근 |
 
-기존 [로컬 사용자 추가 설계](../create-local-user/plan.md), [앱 개발 구조](../../../architecture/app-structure.md), [구현 가이드](../../../architecture/guide-impl.md), [테스트·검증 가이드](../../../architecture/guide-test.md)를 참조한다.
+기존 [로컬 사용자 추가 설계](../create-local-user/plan.md), [백엔드 기능 개발 가이드](../../../architecture/guide-be-feature-dev.md), [구현 가이드](../../../architecture/guide-impl.md), [테스트·검증 가이드](../../../architecture/guide-test.md)를 참조한다.
 
 ## 목표·범위
 

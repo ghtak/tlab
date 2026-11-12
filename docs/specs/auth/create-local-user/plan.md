@@ -24,7 +24,7 @@ status: accepted
 - [`Container`](../../../../tlab-app/src/app.rs)는 DB와 `Box<dyn PasswordHasher>`를 소유하며, `argon2id::Hasher::new(&config.passwd_hasher)`로 해셔를 생성한다. 별도 Argon2 구현이나 알고리즘 선택 계층은 필요 없다. (확인)
 - [`PasswordHasher`](../../../../tlab/src/password.rs)의 `hash(&str)`는 동기 함수다. [`Argon2id`](../../../../tlab/src/password/argon2id.rs)는 OS 난수 salt를 매번 생성하고 PHC 문자열을 반환한다. 현재 앱 설정은 memory_kib = 19456, iterations = 2, parallelism = 1이다. (확인)
 - [`0001 SQL`](../../../../tlab-app/migrations/0001_create_tlab_account.sql)은 숫자 ID, 계정 상태, identity 우선순위와 LOCAL 이메일의 `lower(email)` UNIQUE 인덱스를 제공한다. provider 목록과 자격 정보 조합은 DB에서 제한하지 않는다. 이 작업에 스키마 변경은 필요 없다. (확인)
-- [`HTTP 조립`](../../../../tlab-app/src/http.rs)은 `/health`, `/db_status`와 정적 파일을 연결한다. auth slice와 업무 오류의 HTTP 변환은 아직 없다. [앱 개발 구조](../../../architecture/app-structure.md)에 따라 시나리오 가까이에 배치한다. (확인: 소스 / 추론: 배치)
+- [`HTTP 조립`](../../../../tlab-app/src/http.rs)은 `/health`, `/db_status`와 정적 파일을 연결한다. auth slice와 업무 오류의 HTTP 변환은 아직 없다. [백엔드 기능 개발 가이드](../../../architecture/guide-be-feature-dev.md)에 따라 시나리오 가까이에 배치한다. (확인: 소스 / 추론: 배치)
 
 ## 현재 구현과 조립 상태
 

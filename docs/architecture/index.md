@@ -60,6 +60,6 @@ flowchart TD
 `create-plan`으로 설계 문서를 작성할 때도 아래 가이드를 읽고 구현 방향과 검증할 계약·기대 결과에 반영한다. (확인)
 
 - [구현 가이드](guide-impl.md): 기존 구조와 동작을 존중하며 필요한 범위만 구현·수정하고 실행으로 검증하는 원칙.
-- [앱 개발 구조](app-structure.md): 시나리오별 지역성을 높이는 Vertical Slice Architecture와 usecase·service·repository·route의 책임 구분.
-- [프런트엔드 개발 구조](fe-structure.md): 기능·화면별 지역성, 공통 lib·components와 routes의 책임, 필요한 만큼 분리하는 배치 기준.
+- [백엔드 기능 개발 가이드](guide-be-feature-dev.md): 시나리오별 지역성을 높이는 Vertical Slice Architecture와 usecase·service·repository·route의 책임 구분.
+- [프런트엔드 기능 개발 가이드](guide-fe-feature-dev.md): 기능·화면별 지역성, 공통 lib·components와 routes의 책임, 필요한 만큼 분리하는 배치 기준.
 - [테스트·검증 가이드](guide-test.md): 요구사항과 계약에 따른 기대 결과, 테스트 재사용과 격리, 변경과 위험에 맞는 검증 원칙. (확인)

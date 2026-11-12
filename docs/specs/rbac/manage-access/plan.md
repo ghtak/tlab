@@ -9,7 +9,7 @@ status: draft
 
 | 관계 | 대상 | 설명 |
 | --- | --- | --- |
-| 참고 | [앱 개발 구조](../../../architecture/app-structure.md) | feature·slice 책임과 저장 계약 |
+| 참고 | [백엔드 기능 개발 가이드](../../../architecture/guide-be-feature-dev.md) | feature·slice 책임과 저장 계약 |
 | 참고 | [사용자 추가](../../auth/create-local-user/plan.md) | 후속 RBAC 적용 대상 |
 | 참고 | [JWT 정책](../../auth/jwt.md) | Access 유효기간·권한 변경 지연에 관한 기존 합의 |
 | 참고 | [JWT API](../../auth/jwt-api/plan.md) | 인증과 업무 인가의 경계 |

@@ -9,7 +9,7 @@ status: accepted
 
 | 관계 | 대상 | 설명 |
 | --- | --- | --- |
-| follows | [앱 개발 구조](../../../architecture/app-structure.md) | feature의 작업 소유권과 앱의 조립 책임 |
+| follows | [백엔드 기능 개발 가이드](../../../architecture/guide-be-feature-dev.md) | feature의 작업 소유권과 앱의 조립 책임 |
 | follows | [PLN-AUTH-JWT-WEB](../../auth/jwt-web/plan.md) | 쿠키·CSRF·자동 갱신의 기존 계약 |
 | 관련 설계 | [PLN-AUTH-WEB-UI-SESSION](../../auth/web-ui-session/plan.md) | React의 웹 API 호출과 세션 관리 |
 

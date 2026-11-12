@@ -17,7 +17,7 @@ JWT 기능을 책임별 작업 단위로 구현하고, 각 단계에서 실제 �
 
 기준은 최신 `docs/specs/auth/jwt.md`와 [Refresh SQL 설계안](../../../tlab-app/migrations/0002_create_tlab_auth_refresh_token.sql)이다. 이전 대화에서 논의한 Refresh 교체 방식과 달리, 현재는 같은 Refresh를 최대 7일 반복 사용하고 Access만 갱신한다. `sid`로 로그인 단위를 식별하며 Refresh 교체·재사용 감지는 현재 범위에서 제외한다. (확인: 문서·SQL)
 
-앱 구조는 [앱 개발 구조](../../architecture/app-structure.md)를 따른다. 로그인·갱신·로그아웃의 시나리오는 각 slice에 두고, 실제로 공유하는 토큰 작업과 저장소 API는 auth 공용 범위에 둔다. (추론: 구현 제안)
+앱 구조는 [백엔드 기능 개발 가이드](../../architecture/guide-be-feature-dev.md)를 따른다. 로그인·갱신·로그아웃의 시나리오는 각 slice에 두고, 실제로 공유하는 토큰 작업과 저장소 API는 auth 공용 범위에 둔다. (추론: 구현 제안)
 
 ## 구현 순서와 범위
 

@@ -11,7 +11,7 @@ status: draft
 
 | 관계 | 대상 | 설명 |
 | --- | --- | --- |
-| follows | [프런트엔드 개발 구조](../../../architecture/fe-structure.md) | 기능·화면별 지역성과 공통 코드 배치 |
+| follows | [프런트엔드 기능 개발 가이드](../../../architecture/guide-fe-feature-dev.md) | 기능·화면별 지역성과 공통 코드 배치 |
 | follows | [PLN-HTTP-ROUTE-COMPOSITION](../../http/route-composition/plan.md) | 구현된 API·웹 라우터 조립과 버전 prefix |
 | follows | [PLN-AUTH-JWT-WEB](../jwt-web/plan.md) | 웹 쿠키·동일 origin·서버 자동 갱신 계약 |
 | follows | [PLN-AUTH-JWT-REFRESH-LIFECYCLE](../jwt-refresh-lifecycle/plan.md) | Refresh 수명과 폐기 |
@@ -224,6 +224,14 @@ React Query는 [조회 취소](https://tanstack.com/query/latest/docs/framework/
 - **논의 필요:** 개발 및 운영에서 동일 origin을 제공할 구체적인 방식과 주소. 기존 Vite 별도 실행만으로는 guard를 통과할 수 없다. (확인·추론)
 - **논의 필요:** 세션 만료 시 로그인 화면 이동 방식, 사용자별 캐시 범위와 다른 탭의 즉시 동기화 필요성은 실제 UI 기능에 맞춰 정한다. 기본안은 현재 요청에 오류를 전달하고 사용자 상태를 미인증으로 전환하는 것이다. (제안)
 
+## 현재 인증 구현 연결
+
+`main.tsx`가 QueryClient·ky 클라이언트·auth API·session·Router를 조립한다. `lib/api.ts`는 전달받은 세대·401 통지 계약으로 보호 요청의 오류를 연결하고, 이전 세대의 보호 요청 성공을 취소로 전달한다. 로그인·로그아웃·me는 auth가 오류 의미와 전환을 직접 처리한다. Query와 ky 재시도는 명시적으로 끄며, 사용자 Query는 `['user', sub, ...]` 계약을 따른다. API 타입은 `auth-api.ts`, 세션 계약과 Query 옵션은 `session.ts`, 화면 props는 컴포넌트 옆에 둔다. (확인)
+
+`session.ts`는 세션 Query의 성공 결과가 캐시에 반영된 뒤 최초 확인·로그인 여부·사용자 ID·세션 ID 변경을 한 경로의 callback으로 통지한다. focus/reconnect 자동 재조회도 같은 경로를 사용하며 닉네임 등 프로필만 바뀌면 라우터 재평가를 요청하지 않는다. `main.tsx`는 이 통지를 `router.invalidate()`에 연결하고 HMR 해제 시 `session.dispose()`로 구독을 해제한다. 로그인 경로의 callback은 성공 후 `/` 이동만 담당한다. (확인)
+
+현재 보호 URL은 `/` 하나이므로 로그인 성공 후 `/`로 이동한다. 임의 복귀 URL 입력은 받지 않는다. 추가 보호 경로의 복귀 정책은 그 경로를 도입할 때 정한다. 개발 서버·proxy 설정과 실행 방법은 [UI README](../../../../tlab-app-ui/README.md), 실제 검증과 운영 미검증 범위는 아래 구현·변경 기록을 따른다. (확인)
+
 ## 구현·변경 기록
 
 - 설계 초안 작성. 코드 변경과 브라우저 실행 검증은 하지 않았다. (확인)
@@ -235,7 +243,7 @@ React Query는 [조회 취소](https://tanstack.com/query/latest/docs/framework/
 
 ### 프런트엔드 배치 기준 반영
 
-- 사용자 요청으로 추가한 [프런트엔드 개발 구조](../../../architecture/fe-structure.md)를 참조하고 인증 설계의 배치를 `feature/auth` 아래 pages·components·services·hooks 기준으로 맞췄다. 폴더·hook은 실제 필요에 따라 분리하며 소스 구현은 하지 않았다. (확인)
+- 사용자 요청으로 추가한 [프런트엔드 기능 개발 가이드](../../../architecture/guide-fe-feature-dev.md)를 참조하고 인증 설계의 배치를 `feature/auth` 아래 pages·components·services·hooks 기준으로 맞췄다. 폴더·hook은 실제 필요에 따라 분리하며 소스 구현은 하지 않았다. (확인)
 
 ### 프런트엔드 가이드 기준으로 인증 플랜 갱신
 
@@ -304,3 +312,7 @@ React Query는 [조회 취소](https://tanstack.com/query/latest/docs/framework/
 - 리스크 R1: 통지 책임을 프런트엔드 내부 세션 모듈로 옮긴 변경이며 외부 계약·영속 데이터는 변경하지 않는다. 기존 UI 코드 재배포로 복구 가능하다고 판단했으나 실제 롤백은 실행하지 않았다. (추론)
 
 재리뷰: 앞선 포맷 위반만으로 구조를 2점으로 평가한 것은 과도했다. 이후 테스트 파일의 포맷이 정리되어 `npm run format:check`와 `git diff --check`도 통과했다. 실행 코드와 테스트 동작은 이전 리뷰 이후 바뀌지 않아 앞선 단위·빌드·브라우저 mock·audit 결과를 재사용한다. 결함은 발견하지 못했으며 판정은 통과, 기능 3·구조 4·안정성 3·보안 3·성능 4·테스트 용이성 4, 총 83.75/100이다. 실제 백엔드 브라우저 테스트 및 롤백은 이번 리뷰에서 실행하지 않았다. 리스크 R1 판단은 유지한다. (확인·추론)
+
+### 프런트엔드 기능 개발 가이드 정리
+
+- 가이드를 `guide-fe-feature-dev.md`로 변경하고 참조 경로를 갱신했다. 공통 개발 원칙과 기술별 역할은 가이드에 유지하고, 인증 구현 연결 상세는 이 문서로 모았다. 개발 서버·proxy 실행 안내는 UI README와 설정 원본을 참조한다. 실행 코드와 설정은 변경하지 않았다. (확인)

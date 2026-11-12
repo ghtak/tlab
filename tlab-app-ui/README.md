@@ -2,7 +2,7 @@
 
 `tlab-app-ui`는 tlab의 프런트엔드다. Rust 서버인 `tlab-app`과 별도로 개발 서버를 실행한다.
 
-기술 구성·역할·코드 배치 기준은 [프런트엔드 개발 구조](../docs/architecture/fe-structure.md)에서 관리한다.
+기술 구성·역할·코드 배치 기준은 [프런트엔드 기능 개발 가이드](../docs/architecture/guide-fe-feature-dev.md)에서 관리한다.
 
 ## 시작하기
 
@@ -27,6 +27,8 @@ just app-run-ui
 ```
 
 `tlab-app-ui` 디렉터리에서 직접 `npm run dev`를 실행할 수도 있다. 의존성 버전은 `package-lock.json`으로 관리한다. UI 포트는 5173으로 고정된다. 별도 검증 서버가 필요하면 `TLAB_UI_API_TARGET`으로 proxy 대상을 지정하고 Vite의 `--port` 옵션 및 백엔드 `auth.web.origin`도 같은 UI 주소로 맞춘다.
+
+개발 서버는 `/web/v1` 요청을 백엔드로 proxy한다. proxy 대상과 포트 설정의 원본은 [vite.config.ts](vite.config.ts)에서 확인한다.
 
 ## 명령
 
