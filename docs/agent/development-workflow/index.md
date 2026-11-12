@@ -123,7 +123,7 @@
 
 | 필요한 작업 | 참조할 스킬 |
 | --- | --- |
-| 현재 구조·동작·원인·영향 범위 조사 | [inspect](../../../.agents/skills/inspect/SKILL.md) |
+| 현재 구조·동작·원인·영향 범위 조사 | [explain](../../../.agents/skills/explain/SKILL.md) |
 | 목적·시나리오·정책·예외·완료 조건 구체화 | [requirements-definition](../../../.agents/skills/requirements-definition/SKILL.md) |
 | 책임·경계·계약·호환성·복구 설계 | [create-plan](../../../.agents/skills/create-plan/SKILL.md) |
 | 앱 수준 검증 환경·도구·과정 구성 | [create-verification](../../../.agents/skills/create-verification/SKILL.md) |
