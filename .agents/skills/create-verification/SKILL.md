@@ -13,7 +13,7 @@ description: 실제 앱의 화면·API·CLI 사용 경로를 검증할 공용 �
 경로는 이 `SKILL.md`가 있는 디렉터리를 기준으로 해석한다.
 
 - 시작할 때 [앱 수준 검증 도구·방법 구성 가이드](../../../docs/agent/create-verification/index.md)를 읽고 적용한다.
-- 작업 문서를 작성·갱신할 때 [문서 관리 규칙](../../../docs/agent/document-management/index.md)의 저장 위치·식별자·상태·연결 규칙을 적용한다.
+- 작업 문서를 작성·갱신할 때 [문서 관리 가이드](../../../docs/agent/doc-mgmt.md)를 적용한다.
 - `docs/notes`와 가이드에서 연결한 정리 메모는 사용자가 명시적으로 참조를 요청한 문서만 읽는다. 읽은 메모를 확정 요구사항으로 간주하지 않는다.
 
 ## 수행

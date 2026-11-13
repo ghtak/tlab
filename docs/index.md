@@ -25,7 +25,7 @@
 - [커밋 가이드](agent/commit.md) · [commit 스킬](../.agents/skills/commit/SKILL.md)
 - [코드 리뷰 가이드 초안](agent/code-review/index.md) · [code-review 스킬](../.agents/skills/code-review/SKILL.md)
 - [앱 수준 검증 도구·방법 구성 가이드](agent/create-verification/index.md) · [create-verification 스킬](../.agents/skills/create-verification/SKILL.md)
-- [문서 관리 규칙 초안](agent/document-management/index.md): 공통 참조 규칙
+- [문서 관리 가이드](agent/doc-mgmt.md): 문서 배치·명명·연결·갱신 기준
 
 ## specs
 

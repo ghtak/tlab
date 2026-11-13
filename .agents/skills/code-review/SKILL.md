@@ -15,7 +15,7 @@ description: PR·커밋·작업 중인 코드 변경을 근거에 따라 리뷰�
 - 시작할 때 [코드 리뷰 가이드](../../../docs/agent/code-review/index.md)를 읽고 항목별 기준·리스크 분류·결과 양식을 적용한다. 배점·등급·통과 기준은 가이드의 초기 제안 상태를 유지하며, 합의된 기준이 있으면 우선한다.
 - Rust 코드·의존성·빌드 및 검사 설정 변경은 [Rust 선행 검사](../../../docs/agent/code-review/deterministic-rust.md)의 명령과 진행 조건을 적용한다. 문서만 바뀐 경우에는 Rust 검사를 비대상으로 기록한다.
 - [구현 가이드](../../../docs/architecture/guide-impl.md)와 [테스트·검증 가이드](../../../docs/architecture/guide-test.md)를 읽고 변경과 검증 근거를 평가한다.
-- 작업 문서를 작성·갱신할 때 [문서 관리 규칙](../../../docs/agent/document-management/index.md)의 저장 위치·식별자·상태·연결 규칙을 적용한다.
+- 작업 문서를 작성·갱신할 때 [문서 관리 가이드](../../../docs/agent/doc-mgmt.md)를 적용한다.
 - `docs/notes`는 사용자가 명시적으로 참조를 요청한 문서만 읽는다. 읽은 노트를 확정 요구사항으로 간주하지 않는다.
 
 ## 수행

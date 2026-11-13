@@ -134,7 +134,7 @@ salt 생성값·오류 동작의 결함을 확인한 것은 아니다. 공통 �
 
 ### DOC-01: 합의 상태와 구현 상태 혼용
 
-- 근거: `docs/specs/auth/jwt-{api,login,refresh-storage,refresh-lifecycle}/plan.md:3`은 모두 `status: implemented`다. [문서 관리 규칙](../../agent/document-management/index.md)의 공통 메타데이터·상태 절은 `draft`, `accepted`, `retired`를 정의하고 구현 완료 여부와 채택 상태를 구분한다. (확인)
+- 근거: `docs/specs/auth/jwt-{api,login,refresh-storage,refresh-lifecycle}/plan.md:3`은 모두 `status: implemented`다. 검증 당시 문서 관리 규칙의 공통 메타데이터·상태 절은 `draft`, `accepted`, `retired`를 정의하고 구현 완료 여부와 채택 상태를 구분했다. 해당 규칙은 이후 폐기되었으며, 이 항목은 당시 검증 기록이다. (확인)
 - 영향: 구현 완료를 합의·채택 상태로 잘못 해석하거나 상태 기반 탐색에서 빠뜨릴 수 있다. (추론)
 - 반영 제안: 각 문서의 채택 근거를 확인한 후 허용된 상태로 정리한다. 근거 확인 없이 일괄 `accepted`로 바꾸지 않는다. 구현 여부는 본문의 구현 요약·검증 결과로 표현한다.
 

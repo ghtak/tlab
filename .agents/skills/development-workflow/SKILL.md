@@ -22,7 +22,7 @@ description: 사용자가 개발 진행 스킬 또는 $development-workflow 사�
 
 - 시작할 때 [개발 진행 가이드](../../../docs/agent/development-workflow/index.md)를 읽고 수행 깊이·수행 흐름·전문 스킬 참조 기준을 적용한다.
 - 구현할 때 [구현 가이드](../../../docs/architecture/guide-impl.md)와 [테스트·검증 가이드](../../../docs/architecture/guide-test.md)를 읽고 적용한다.
-- 작업 문서를 작성·갱신할 때 [문서 관리 규칙](../../../docs/agent/document-management/index.md)을 적용한다. 기존 문서를 재사용하고, 없으면 단일 통합 명세로 시작하여 단계별로 보완한다.
+- 작업 문서를 작성·갱신할 때 [문서 관리 가이드](../../../docs/agent/doc-mgmt.md)를 적용한다. 기존 문서를 우선 갱신하고, 필요한 경우에만 새 문서를 작성한다.
 - `docs/notes`는 사용자가 명시적으로 참조를 요청한 문서만 읽는다. 읽은 노트를 확정 요구사항으로 간주하지 않는다.
 
 ## 수행
