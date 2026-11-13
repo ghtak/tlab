@@ -20,7 +20,7 @@
 문서 관리 규칙은 별도 스킬로 만들지 않고 각 기능의 문서 작성·갱신에 공통으로 적용한다. (확인)
 
 - [기능 구상 가이드](agent/feature-exploration/index.md) · [feature-exploration 스킬](../.agents/skills/feature-exploration/SKILL.md): 논의 대상의 기능·할 일·관계를 간략히 정리하고 상세 문서에 연결한다.
-- [요구사항 정의 가이드](agent/requirements-definition/index.md) · [requirements-definition 스킬](../.agents/skills/requirements-definition/SKILL.md): 선택한 기능의 시나리오·정책·예외·검증 조건을 상세화한다.
+- [요구사항 정의 가이드](agent/req-def.md) · [req-def 스킬](../.agents/skills/req-def/SKILL.md): 요구를 분석하여 구체적인 요건과 충족 조건을 정의한다.
 - [설계 문서 작성 가이드 초안](agent/create-plan/index.md) · [create-plan 스킬](../.agents/skills/create-plan/SKILL.md)
 - [개발 진행 가이드](agent/development-workflow/index.md) · [개발 진행 스킬](../.agents/skills/development-workflow/SKILL.md)
 - [커밋 가이드](agent/commit/index.md) · [commit 스킬](../.agents/skills/commit/SKILL.md)

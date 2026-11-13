@@ -29,9 +29,7 @@ docs/
 ├── agent/
 │   ├── document-management/
 │   │   └── index.md
-│   └── requirements-definition/
-│       ├── index.md
-│       └── template.md
+│   └── req-def.md
 ├── specs/
 │   ├── decisions/                    # 여러 기능에 공통인 결정
 │   └── orders/
@@ -196,4 +194,4 @@ AI가 문서를 작성했다는 이유로 `accepted`로 바꾸지 않는다.
 
 필요한 문서와 연결을 직접 확인한다. 별도 검증 스크립트는 현재 운영의 필수 조건이 아니다.
 
-관련 작성 가이드: [요구사항 정의](../requirements-definition/index.md)
+관련 작성 가이드: [요구사항 정의](../req-def.md)
