@@ -1,4 +1,4 @@
-use crate::auth::token::AccessClaims;
+use crate::auth::jwt::AccessClaims;
 
 use super::RoleIds;
 

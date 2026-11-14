@@ -1,4 +1,4 @@
-use super::token::{AccessClaims, AccessVerifier, Error as TokenError};
+use super::jwt::{AccessClaims, AccessVerifier, Error as TokenError};
 use crate::app::response;
 use axum::{
     extract::{FromRef, FromRequestParts, OptionalFromRequestParts},
@@ -85,8 +85,7 @@ fn verified_claims(
         Err(
             error @ (TokenError::InvalidConfiguration
             | TokenError::InvalidInput
-            | TokenError::SigningFailed
-            | TokenError::RandomFailed),
+            | TokenError::SigningFailed),
         ) => Err(error),
     }
 }
@@ -115,7 +114,6 @@ mod tests {
             TokenError::InvalidConfiguration,
             TokenError::InvalidInput,
             TokenError::SigningFailed,
-            TokenError::RandomFailed,
         ] {
             let expected = std::mem::discriminant(&error);
             let Err(error) = verified_claims(Err(error)) else {
@@ -209,8 +207,7 @@ mod tests {
         }
         .load()
         .unwrap();
-        let issuer =
-            super::super::token::AccessIssuer::new(&material, "issuer", "audience").unwrap();
+        let issuer = super::super::jwt::AccessIssuer::new(&material, "issuer", "audience").unwrap();
         let verifier =
             AccessVerifier::new(material.public_key_pem(), "issuer", "audience").unwrap();
         let router = Router::new()

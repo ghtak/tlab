@@ -1,10 +1,10 @@
 use crate::app::error::{AppError, AppErrorCode};
 use crate::auth::{
     entity::RevokeReason,
+    jwt::AccessIssuer,
     repository::{account, refresh_token},
     slice::{logout, refresh_access_token},
     test_support::{isolated, session_setup as setup, token_keys as keys},
-    token::AccessIssuer,
 };
 use chrono::Utc;
 use jsonwebtoken::EncodingKey;
@@ -16,7 +16,7 @@ async fn refresh_reads_current_roles_and_preserves_session_on_lookup_failure() {
     isolated(|db| async move {
         let (id, secret, _) = setup(&db).await;
         let (issuer, verifier) = keys();
-        let read = |token: crate::auth::token::AccessToken| {
+        let read = |token: crate::auth::jwt::AccessToken| {
             verifier.verify(token.expose_secret(), Utc::now().timestamp() as u64).unwrap().user["role_ids"].clone()
         };
         assert_eq!(read(refresh_access_token::execute(&db, secret.expose_secret(), &issuer).await.unwrap()), serde_json::json!([]));

@@ -1,7 +1,7 @@
 use super::usecase;
 use crate::{
     app::{Container, response},
-    auth::token::AccessClaims,
+    auth::jwt::AccessClaims,
     rbac::Actor,
 };
 use axum::{

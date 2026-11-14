@@ -10,65 +10,6 @@ use crate::auth::passwd_policy::{NonEmptyPasswordPolicy, PasswordPolicy};
 pub mod error;
 pub mod response;
 
-#[derive(Debug, Deserialize, Clone)]
-#[serde(default, deny_unknown_fields)]
-pub struct AuthConfig {
-    pub jwt: JwtConfig,
-    pub web: crate::auth::web::Config,
-    /// Shared capacity for password generation and verification.
-    pub max_concurrent_password_hashes: usize,
-}
-
-impl Default for AuthConfig {
-    fn default() -> Self {
-        Self {
-            max_concurrent_password_hashes: 2,
-            jwt: JwtConfig::default(),
-            web: crate::auth::web::Config::default(),
-        }
-    }
-}
-
-#[derive(Debug, Deserialize, Clone, Default)]
-#[serde(default, deny_unknown_fields)]
-pub struct JwtConfig {
-    pub private_key: std::path::PathBuf,
-    pub public_key: std::path::PathBuf,
-    pub generate_if_missing: bool,
-    pub issuer: String,
-    pub audience: String,
-}
-
-impl JwtConfig {
-    pub fn prepare(
-        &self,
-    ) -> tlab::Result<(
-        Arc<crate::auth::token::AccessIssuer>,
-        Arc<crate::auth::token::AccessVerifier>,
-    )> {
-        if self.issuer.trim().is_empty() || self.audience.trim().is_empty() {
-            return Err(Error::InvalidInput(
-                "auth.jwt issuer and audience are required".into(),
-            ));
-        }
-        let material = tlab::keyfiles::Ed25519KeyFile {
-            private_key: self.private_key.clone(),
-            public_key: self.public_key.clone(),
-            generate_if_missing: self.generate_if_missing,
-        }
-        .load()?;
-        let issuer = crate::auth::token::AccessIssuer::new(&material, &self.issuer, &self.audience)
-            .map_err(|_| Error::InvalidInput("invalid JWT configuration".into()))?;
-        let verifier = crate::auth::token::AccessVerifier::new(
-            material.public_key_pem(),
-            &self.issuer,
-            &self.audience,
-        )
-        .map_err(|_| Error::InvalidInput("invalid JWT configuration".into()))?;
-        Ok((Arc::new(issuer), Arc::new(verifier)))
-    }
-}
-
 /// The app owns the set of instances and the shared static file configuration.
 #[derive(Debug, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
@@ -102,7 +43,7 @@ pub struct Config {
     pub passwd_hasher: password::argon2id::Config,
     pub database: tlab::sqlxdb::Config,
     #[serde(default)]
-    pub auth: AuthConfig,
+    pub auth: crate::auth::Config,
 }
 
 pub mod db {
@@ -122,8 +63,8 @@ pub struct Container {
     pub local_login: crate::auth::LocalLogin,
     pub database: Arc<db::Database>,
     pub(crate) role_permission_resolver: Arc<dyn crate::rbac::RolePermissionResolver>,
-    pub access_issuer: Arc<crate::auth::token::AccessIssuer>,
-    pub access_verifier: Arc<crate::auth::token::AccessVerifier>,
+    pub access_issuer: Arc<crate::auth::jwt::AccessIssuer>,
+    pub access_verifier: Arc<crate::auth::jwt::AccessVerifier>,
 }
 
 impl Container {
@@ -171,7 +112,7 @@ impl Container {
     }
 }
 
-impl axum::extract::FromRef<Arc<Container>> for crate::auth::token::AccessVerifier {
+impl axum::extract::FromRef<Arc<Container>> for crate::auth::jwt::AccessVerifier {
     fn from_ref(container: &Arc<Container>) -> Self {
         (*container.access_verifier).clone()
     }
@@ -240,7 +181,7 @@ mod tests {
         }
     }
 
-    fn config_for_jwt_startup_test(jwt: JwtConfig) -> Config {
+    fn config_for_jwt_startup_test(jwt: crate::auth::jwt::Config) -> Config {
         let mut config: Config = serde_json::from_value(serde_json::json!({
             "tracing": {},
             "server": {
@@ -260,7 +201,7 @@ mod tests {
     #[tokio::test]
     async fn missing_jwt_keys_with_generation_disabled_fail_before_database() {
         let dir = tempfile::tempdir().unwrap();
-        let jwt = JwtConfig {
+        let jwt = crate::auth::jwt::Config {
             private_key: dir.path().join("private.pem"),
             public_key: dir.path().join("public.pem"),
             generate_if_missing: false,
@@ -279,7 +220,7 @@ mod tests {
     async fn empty_jwt_issuer_or_audience_fails_before_key_generation_and_database() {
         for (issuer, audience) in [("", "audience"), ("issuer", "")] {
             let dir = tempfile::tempdir().unwrap();
-            let jwt = JwtConfig {
+            let jwt = crate::auth::jwt::Config {
                 private_key: dir.path().join("private.pem"),
                 public_key: dir.path().join("public.pem"),
                 generate_if_missing: true,

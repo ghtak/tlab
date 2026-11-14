@@ -10,7 +10,7 @@ use serde_json::json;
 
 use crate::{
     app::{Container, response},
-    auth::token::AccessClaims,
+    auth::jwt::AccessClaims,
 };
 
 pub(crate) fn api_routes() -> Router<Arc<Container>> {

@@ -2,9 +2,9 @@ use super::*;
 use crate::{
     app,
     auth::{
+        jwt::AccessToken,
         repository::refresh_token,
         test_support::{isolated, session_setup, token_keys},
-        token::AccessToken,
     },
 };
 use axum::{

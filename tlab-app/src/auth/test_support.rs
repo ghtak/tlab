@@ -89,8 +89,9 @@ where
 
 use super::{
     entity::{AccountStatus, NewAccount},
+    jwt::AccessIssuer,
     repository::{account, refresh_token},
-    token::{AccessIssuer, RefreshToken as Secret},
+    token::RefreshToken as Secret,
 };
 use chrono::Utc;
 use std::time::Duration;
@@ -128,7 +129,7 @@ pub(super) async fn session_setup(db: &Database) -> (i64, Secret, uuid::Uuid) {
     (account.id, secret, sid)
 }
 
-pub(super) fn token_keys() -> (AccessIssuer, crate::auth::token::AccessVerifier) {
+pub(super) fn token_keys() -> (AccessIssuer, crate::auth::jwt::AccessVerifier) {
     let dir = tempfile::tempdir().unwrap();
     let material = tlab::keyfiles::Ed25519KeyFile {
         private_key: dir.path().join("private.pem"),
@@ -139,7 +140,7 @@ pub(super) fn token_keys() -> (AccessIssuer, crate::auth::token::AccessVerifier)
     .unwrap();
     (
         AccessIssuer::new(&material, "issuer", "audience").unwrap(),
-        crate::auth::token::AccessVerifier::new(material.public_key_pem(), "issuer", "audience")
+        crate::auth::jwt::AccessVerifier::new(material.public_key_pem(), "issuer", "audience")
             .unwrap(),
     )
 }

@@ -24,6 +24,13 @@ generate_if_missing = true
 issuer = "tlab"
 audience = "tlab-api"
 
+[auth.google_oauth2]
+client_id = ""
+client_secret = ""
+auth_uri = ""
+token_uri = ""
+redirect_uris = []
+
 [auth.web]
 # Local Vite UI origin; no trailing slash. Restart the backend after changes.
 origin = "http://localhost:5173"

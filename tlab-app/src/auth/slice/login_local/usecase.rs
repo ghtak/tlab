@@ -13,8 +13,9 @@ use crate::{
     },
     auth::{
         entity::{Account, NewRefreshToken},
+        jwt::AccessToken,
         repository::{account, identity, refresh_token},
-        token::{AccessToken, RefreshToken},
+        token::RefreshToken,
     },
 };
 
@@ -38,14 +39,14 @@ pub struct LocalLogin {
     hasher: Arc<dyn PasswordHasher>,
     slots: Arc<Semaphore>,
     dummy_password_hash: Arc<str>,
-    access_issuer: Arc<crate::auth::token::AccessIssuer>,
+    access_issuer: Arc<crate::auth::jwt::AccessIssuer>,
 }
 
 impl LocalLogin {
     pub async fn new(
         hasher: Arc<dyn PasswordHasher>,
         slots: Arc<Semaphore>,
-        access_issuer: Arc<crate::auth::token::AccessIssuer>,
+        access_issuer: Arc<crate::auth::jwt::AccessIssuer>,
     ) -> tlab::Result<Self> {
         let dummy_hasher = hasher.clone();
         let dummy_password_hash =

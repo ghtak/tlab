@@ -1,4 +1,4 @@
-use super::{code, isolated, new_role, rbac::*, token};
+use super::{code, isolated, jwt, new_role, rbac::*};
 use serde_json::{Value, json};
 use std::{sync::Arc, time::Duration};
 
@@ -12,9 +12,9 @@ fn verified_claims_apply_only_rbac_identity_and_json_boundaries() {
     }
     .load()
     .unwrap();
-    let issuer = token::AccessIssuer::new(&material, "issuer", "audience").unwrap();
+    let issuer = jwt::AccessIssuer::new(&material, "issuer", "audience").unwrap();
     let verifier =
-        token::AccessVerifier::new(material.public_key_pem(), "issuer", "audience").unwrap();
+        jwt::AccessVerifier::new(material.public_key_pem(), "issuer", "audience").unwrap();
     let interpret = |sub: &str, user: Value| {
         let signed = issuer
             .issue(

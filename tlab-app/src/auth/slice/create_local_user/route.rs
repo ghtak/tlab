@@ -14,7 +14,7 @@ use crate::app::{Container, response};
 
 pub(crate) async fn create_local_user(
     State(container): State<Arc<Container>>,
-    claims: crate::auth::token::AccessClaims,
+    claims: crate::auth::jwt::AccessClaims,
     payload: Result<Json<create_local_user::Command>, JsonRejection>,
 ) -> Response {
     use crate::{

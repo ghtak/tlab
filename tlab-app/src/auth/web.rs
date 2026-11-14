@@ -18,8 +18,8 @@ use tower_cookies::{
 };
 
 use super::{
+    jwt::{AccessClaims, Error as TokenError},
     slice,
-    token::{AccessClaims, Error as TokenError},
 };
 use crate::app::{Container, response};
 

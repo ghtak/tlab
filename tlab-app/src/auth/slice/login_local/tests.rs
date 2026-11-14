@@ -18,7 +18,7 @@ use tower::ServiceExt;
 use super::usecase::{self, verify_password};
 use crate::{
     app::{self, Container},
-    auth::{LocalLogin, passwd_policy::NonEmptyPasswordPolicy, token::AccessIssuer},
+    auth::{LocalLogin, jwt::AccessIssuer, passwd_policy::NonEmptyPasswordPolicy},
 };
 
 struct Gate {
@@ -320,7 +320,7 @@ async fn login_refresh_logout_http_flow() {
         assert!(body["refresh_token"].is_string());
         let access = body["access_token"].as_str().unwrap();
         let refresh = body["refresh_token"].as_str().unwrap();
-        async fn protected(claims: crate::auth::token::AccessClaims) -> axum::Json<Value> {
+        async fn protected(claims: crate::auth::jwt::AccessClaims) -> axum::Json<Value> {
             axum::Json(json!({"sid": claims.sid, "sub": claims.sub}))
         }
         let router = axum::Router::new()
@@ -423,9 +423,9 @@ async fn login_issues_independent_sessions() {
         .load()
         .unwrap();
         let issuer =
-            crate::auth::token::AccessIssuer::new(&material, "test-issuer", "test-audience")
+            crate::auth::jwt::AccessIssuer::new(&material, "test-issuer", "test-audience")
                 .unwrap();
-        let verifier = crate::auth::token::AccessVerifier::new(
+        let verifier = crate::auth::jwt::AccessVerifier::new(
             material.public_key_pem(),
             "test-issuer",
             "test-audience",
@@ -508,7 +508,7 @@ async fn login_signing_insert_and_commit_failures() {
             issuer: "test-issuer".into(),
             audience: "test-audience".into(),
         });
-        let _verifier = crate::auth::token::AccessVerifier::new(
+        let _verifier = crate::auth::jwt::AccessVerifier::new(
             material.public_key_pem(),
             "test-issuer",
             "test-audience",
@@ -613,7 +613,7 @@ async fn login_rechecks_account_after_withdrawal_lock() {
         .unwrap();
         let waiting = tokio::spawn(async move {
             let issuer =
-                crate::auth::token::AccessIssuer::new(&login_material, "test-issuer", "test-audience")
+                crate::auth::jwt::AccessIssuer::new(&login_material, "test-issuer", "test-audience")
                     .unwrap();
 
             let local_login = LocalLogin::new(login_container.passwd_hasher.clone(), login_container.passwd_hash_slots.clone() , Arc::new(issuer)).await.unwrap();

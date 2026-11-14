@@ -2,7 +2,7 @@ use super::usecase;
 use crate::rbac::NewRole;
 use crate::{
     app::{Container, response},
-    auth::token::AccessClaims,
+    auth::jwt::AccessClaims,
     rbac::Actor,
 };
 use axum::{Json, extract::rejection::JsonRejection};

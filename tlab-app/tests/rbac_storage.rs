@@ -26,6 +26,8 @@ mod auth_identity;
 mod auth_local_account;
 #[path = "../src/auth/passwd_policy.rs"]
 mod auth_passwd_policy;
+#[path = "../src/auth/jwt.rs"]
+mod jwt;
 #[path = "../src/auth/token.rs"]
 mod token;
 mod auth {
@@ -36,7 +38,7 @@ mod auth {
     };
     pub(crate) use crate::auth_passwd_policy as passwd_policy;
     pub(crate) use crate::auth_session_policy::allowed as account_allowed;
-    pub(crate) use crate::token;
+    pub(crate) use crate::jwt;
     pub(crate) mod repository {
         pub(crate) use crate::auth_account as account;
         pub(crate) use crate::auth_identity as identity;
